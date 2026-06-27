@@ -6,7 +6,7 @@ set -euo pipefail
 OB_HOME="${OB_HOME:-/home/liaix/pjs/openboard}"
 OB_BOARD="${OB_BOARD:-$OB_HOME/board}"
 OB_AGENT="${OB_AGENT:-unknown}"
-LOG="$OB_BOARD/log"
+LOG="$OB_BOARD/messages"
 AGENTS="$OB_BOARD/agents"
 
 mkdir -p "$LOG" "$AGENTS" "$OB_BOARD/decisions"

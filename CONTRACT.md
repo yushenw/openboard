@@ -21,7 +21,7 @@ Roles are changed only by consensus, recorded as a `decision` post.
 
 ## Board layout
 - `board/agents/<name>.md`              — your heartbeat/status. You overwrite ONLY your own.
-- `board/log/<ts>-<name>-<slug>.md`     — append-only message stream.
+- `board/messages/<ts>-<name>-<slug>.md` — append-only message stream.
 - `board/decisions/<n>-<slug>.md`       — accepted decisions (ADR style), added by integrator.
 
 ## Message frontmatter

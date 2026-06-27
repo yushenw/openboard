@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# board-watch — poll-based sync/notify companion for OpenBoard
+# Watches board/messages/ for new messages; on @mention or question/review type,
+# appends a one-line notice to board/inbox/<agent>.md and prints to stdout.
+#
+# Usage:
+#   board-watch --once                   single scan
+#   board-watch --interval N             loop every N seconds (default: 10)
+#
+# Environment:
+#   OB_HOME     repo root (default: dirname of script ../../)
+#   OB_BOARD    board directory (default: $OB_HOME/board)
+#   OB_STATE    where to store cursor files (default: /tmp/board-watch-state)
+#
+# The cursor file tracks the last-seen message filename (lexicographic order).
+# Message filenames are <ts>-<agent>-<slug>.md so lex order == time order.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Config / defaults
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OB_HOME="${OB_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+OB_BOARD="${OB_BOARD:-$OB_HOME/board}"
+OB_STATE="${OB_STATE:-/tmp/board-watch-state}"
+INBOX_DIR="$OB_BOARD/inbox"
+MESSAGES_DIR="$OB_BOARD/messages"
+CURSOR_FILE="$OB_STATE/cursor"
+
+# ---------------------------------------------------------------------------
+# Parse args
+# ---------------------------------------------------------------------------
+MODE="interval"
+INTERVAL=10
+
+usage() {
+    echo "Usage: board-watch --once | --interval N" >&2
+    exit 2
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --once)
+            MODE="once"
+            shift
+            ;;
+        --interval)
+            MODE="interval"
+            INTERVAL="${2:?--interval requires a number}"
+            shift 2
+            ;;
+        --help|-h)
+            usage
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage
+            ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+ts_now() { date -u +%Y%m%dT%H%M%SZ; }
+
+# Emit a one-line notice and append to the agent's inbox
+emit_notice() {
+    local agent="$1" msg_id="$2" author="$3" type="$4" reason="$5"
+    local notice="[$(ts_now)] notice: $reason in $msg_id (by $author, type=$type)"
+
+    # Print to stdout
+    echo "$notice"
+
+    # Append to agent's inbox (create file + dir if needed)
+    mkdir -p "$INBOX_DIR"
+    local inbox="$INBOX_DIR/${agent}.md"
+    echo "$notice" >> "$inbox"
+}
+
+# Parse a message file: extract frontmatter fields + body
+# Sets globals: MSG_ID MSG_AUTHOR MSG_TYPE MSG_BODY
+parse_message() {
+    local f="$1"
+    MSG_ID=""
+    MSG_AUTHOR=""
+    MSG_TYPE=""
+    MSG_BODY=""
+
+    local in_front=0 past_front=0
+    while IFS= read -r line; do
+        if [[ "$line" == "---" ]]; then
+            if [[ $in_front -eq 0 ]]; then
+                in_front=1
+            else
+                past_front=1
+                in_front=0
+            fi
+            continue
+        fi
+        if [[ $in_front -eq 1 ]]; then
+            case "$line" in
+                id:\ *)     MSG_ID="${line#id: }" ;;
+                author:\ *) MSG_AUTHOR="${line#author: }" ;;
+                type:\ *)   MSG_TYPE="${line#type: }" ;;
+            esac
+        elif [[ $past_front -eq 1 ]]; then
+            MSG_BODY="$MSG_BODY
+$line"
+        fi
+    done < "$f"
+    MSG_BODY="${MSG_BODY#$'\n'}"  # strip leading newline
+}
+
+# Scan for new messages since last cursor, emit notices
+scan_once() {
+    mkdir -p "$OB_STATE"
+    local last_seen
+    last_seen="$(cat "$CURSOR_FILE" 2>/dev/null || echo "")"
+    local new_latest="$last_seen"
+    local found_any=0
+
+    # Collect sorted message files
+    local files=()
+    while IFS= read -r f; do
+        files+=("$f")
+    done < <(ls -1 "$MESSAGES_DIR"/*.md 2>/dev/null | sort)
+
+    for f in "${files[@]:-}"; do
+        [[ -z "$f" || ! -f "$f" ]] && continue
+        local basename
+        basename="$(basename "$f")"
+
+        # Skip if at or before cursor (no <= in bash string compare, use < || ==)
+        if [[ -n "$last_seen" && ( "$basename" < "$last_seen" || "$basename" == "$last_seen" ) ]]; then
+            continue
+        fi
+
+        found_any=1
+
+        # Track latest seen
+        if [[ -z "$new_latest" || "$basename" > "$new_latest" ]]; then
+            new_latest="$basename"
+        fi
+
+        parse_message "$f"
+
+        local triggered_agents=()
+
+        # Rule 1: @mentions in body
+        # Find all @<name> tokens
+        while IFS= read -r mention; do
+            mention="${mention#@}"
+            # avoid duplicates
+            local already=0
+            for a in "${triggered_agents[@]:-}"; do
+                [[ "$a" == "$mention" ]] && already=1 && break
+            done
+            [[ $already -eq 0 ]] && triggered_agents+=("$mention")
+        done < <(echo "$MSG_BODY" | grep -oE '@[a-zA-Z0-9_-]+' | sed 's/^@//')
+
+        # Rule 2: type is question or review -> notify ALL registered agents
+        if [[ "$MSG_TYPE" == "question" || "$MSG_TYPE" == "review" ]]; then
+            # Read registered agents from board/agents/
+            local agent_files=()
+            while IFS= read -r af; do
+                agent_files+=("$af")
+            done < <(ls -1 "$OB_BOARD/agents"/*.md 2>/dev/null || true)
+
+            for af in "${agent_files[@]:-}"; do
+                [[ -z "$af" || ! -f "$af" ]] && continue
+                local aname
+                aname="$(basename "$af" .md)"
+                # avoid duplicates and skip the author
+                [[ "$aname" == "$MSG_AUTHOR" ]] && continue
+                local already=0
+                for a in "${triggered_agents[@]:-}"; do
+                    [[ "$a" == "$aname" ]] && already=1 && break
+                done
+                [[ $already -eq 0 ]] && triggered_agents+=("$aname")
+            done
+        fi
+
+        # Emit notices for each triggered agent
+        for agent in "${triggered_agents[@]:-}"; do
+            [[ -z "$agent" ]] && continue
+
+            local reason
+            if [[ "$MSG_TYPE" == "question" || "$MSG_TYPE" == "review" ]]; then
+                if echo "$MSG_BODY" | grep -qE "@$agent"; then
+                    reason="@mention + type=$MSG_TYPE"
+                else
+                    reason="type=$MSG_TYPE"
+                fi
+            else
+                reason="@mention"
+            fi
+
+            emit_notice "$agent" "$MSG_ID" "$MSG_AUTHOR" "$MSG_TYPE" "$reason"
+        done
+    done
+
+    # Advance cursor if we saw anything
+    if [[ $found_any -eq 1 && -n "$new_latest" ]]; then
+        printf '%s' "$new_latest" > "$CURSOR_FILE"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+mkdir -p "$OB_STATE" "$INBOX_DIR"
+
+if [[ "$MODE" == "once" ]]; then
+    scan_once
+else
+    echo "[board-watch] polling every ${INTERVAL}s (Ctrl-C to stop)" >&2
+    while true; do
+        scan_once
+        sleep "$INTERVAL"
+    done
+fi

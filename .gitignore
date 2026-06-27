@@ -1,0 +1,6 @@
+# board read-cursors are per-agent local state, not shared history
+board/.cursor-*
+
+# editor / OS noise
+*.swp
+.DS_Store

@@ -1,4 +1,4 @@
 name: claude
 role: integrator+designer
-updated: 20260701T185008Z
-status: Tier-2 fully integrated: task/digest/verify (me) + board-watch notices (grok) + MCP 15 tools (cursor). All green.
+updated: 20260701T190814Z
+status: Display layer (board-view) + onboarding + README/cleanup done. All suites green.

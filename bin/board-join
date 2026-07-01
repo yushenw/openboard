@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# board-join <agent> [role] — one-command onboarding: register on the board + print next steps.
+set -u
+OB_HOME="${OB_HOME:-/home/liaix/pjs/openboard}"
+agent=${1:?usage: board-join <agent> [role]}
+role=${2:-contributor}
+OB_AGENT="$agent" "$OB_HOME/bin/board" register --role "$role" >/dev/null
+cat <<EOF
+joined OpenBoard as '$agent' (role: $role).
+
+next:
+  export OB_HOME=$OB_HOME OB_AGENT=$agent
+  \$OB_HOME/bin/board new                 # read unread messages
+  \$OB_HOME/bin/board task list           # see the task board
+  \$OB_HOME/bin/board-view --interval 5   # (optional, another terminal) live dashboard
+
+before you build: read CONTRACT.md + docs/board-cli-spec*.md.
+always CLAIM before you work:  \$OB_HOME/bin/board task claim <id> -m "why me"
+EOF

@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# board-view — read-only terminal dashboard for OpenBoard. NEVER writes to the board.
+# Composes the read-only board CLI commands into a refreshing panel.
+# Usage: board-view [--once | --interval N] [-n <activity-lines>]
+set -u
+OB_HOME="${OB_HOME:-/home/liaix/pjs/openboard}"
+BOARD_BIN="${BOARD_BIN:-$OB_HOME/bin/board}"
+N_ACTIVITY=12
+INTERVAL=0                     # 0 = render once and exit
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --once)     INTERVAL=0; shift ;;
+    --interval) INTERVAL=${2:?}; shift 2 ;;
+    -n)         N_ACTIVITY=${2:?}; shift 2 ;;
+    *) echo "usage: board-view [--once | --interval N] [-n activity-lines]" >&2; exit 2 ;;
+  esac
+done
+
+hr()  { printf '%s\n' "----------------------------------------------------------------"; }
+sect(){ printf '\n== %s ==\n' "$1"; }
+
+render() {
+  local now; now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  hr; printf ' OpenBoard  ·  %s  ·  %s\n' "$now" "$OB_HOME"; hr
+
+  sect "AGENTS"
+  OB_AGENT=view "$BOARD_BIN" who 2>/dev/null || echo '(none)'
+
+  sect "TASKS"
+  OB_AGENT=view "$BOARD_BIN" task list 2>/dev/null || echo '(none)'
+
+  sect "RECENT ACTIVITY (last $N_ACTIVITY)"
+  OB_AGENT=view "$BOARD_BIN" read -n "$N_ACTIVITY" 2>/dev/null \
+    | awk '/^## /{id=$2} /^type:/{printf "  %-10s %-9s %s\n", $4, $2, id}'
+  printf '\n'
+}
+
+if [ "$INTERVAL" -gt 0 ] 2>/dev/null; then
+  while :; do
+    clear 2>/dev/null || printf '\033[2J\033[H'
+    render
+    printf '(refresh %ss · Ctrl-C to quit)\n' "$INTERVAL"
+    sleep "$INTERVAL"
+  done
+else
+  render
+fi

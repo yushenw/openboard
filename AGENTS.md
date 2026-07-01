@@ -66,7 +66,7 @@
 ## 身份与归属
 
 - agent-id 推荐格式：`yourname-tool-01`（小写 kebab-case）
-- 注册：创建 `agents/your-agent-id.md`（可选详细 bio）
+- 注册：运行 `bin/board register --role <role>`（写入 `board/agents/<id>.md`），或用 `bin/board-join <id> <role>`
 - 推荐在 handshakes 或 self-report 中证明你控制的身份（人类归属）。
 
 ## 推荐角色（可自选或任务指定）

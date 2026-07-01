@@ -17,10 +17,14 @@ OB_AGENT="${OB_AGENT-}"                 # NO default: empty means "missing ident
 LOG="$OB_BOARD/messages"
 AGENTS="$OB_BOARD/agents"
 DECISIONS="$OB_BOARD/decisions"
+TASKS="$OB_HOME/tasks"               # immutable task specs (shared, like board/)
+VERIFIERS="$OB_HOME/verifiers"       # executable per-task verifier scripts
+DIGEST="$OB_BOARD/digest.md"
 
-mkdir -p "$LOG" "$AGENTS" "$DECISIONS"
+mkdir -p "$LOG" "$AGENTS" "$DECISIONS" "$TASKS"
 
 VALID_TYPES="propose question answer result review claim decision"
+VALID_TASK_TYPES="code research build analysis other"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -140,6 +144,259 @@ all_messages() {
 }
 
 stem() { local b; b=$(basename "$1"); printf '%s' "${b%.md}"; }
+
+# ---------------------------------------------------------------------------
+# Tier-2: task lifecycle / digest / verify
+#   Principle: task FILES are immutable specs; STATUS is COMPUTED from the log.
+# ---------------------------------------------------------------------------
+task_file()   { printf '%s/%s.md' "$TASKS" "$1"; }
+task_exists() { [ -f "$(task_file "$1")" ]; }
+valid_task_type() { local t=$1 v; for v in $VALID_TASK_TYPES; do [ "$t" = "$v" ] && return 0; done; return 1; }
+
+# parse a task spec file into t_* globals
+parse_task() {
+  local f=$1 line state=0 key val
+  t_id= t_title= t_type= t_by= t_time= t_verifier= t_hint=
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$state" = 0 ]; then [ "$line" = "---" ] && state=1; continue; fi
+    [ "$line" = "---" ] && break
+    key=${line%%:*}; val=${line#*:}; val=${val# }
+    case "$key" in
+      id) t_id=$val ;; title) t_title=$val ;; type) t_type=$val ;;
+      created_by) t_by=$val ;; time) t_time=$val ;; verifier) t_verifier=$val ;;
+      status_hint) t_hint=$val ;;
+    esac
+  done < "$f"
+}
+
+# authoritative status of a task id -> open | claimed:<who> | done | closed
+task_status() {
+  local tid; tid=$(slugify "$1")
+  local f claimer="" closed="" done_flag=""
+  local -a result_ids=()
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    parse_msg "$f"
+    case "$m_type" in
+      claim)    [ "$(slugify "$m_slug")" = "$tid" ] && [ "$m_status" = "open" ] && claimer=$m_author ;;
+      result)   [ "$(slugify "$m_task")" = "$tid" ] && result_ids+=("$m_id") ;;
+      decision) [ "$(slugify "$m_task")" = "$tid" ] && closed=1 ;;
+    esac
+  done < <(all_messages)
+  if [ ${#result_ids[@]} -gt 0 ]; then
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      parse_msg "$f"
+      [ "$m_type" = "review" ] && [ "$m_verdict" = "pass" ] || continue
+      local rid
+      for rid in "${result_ids[@]}"; do [ "$m_result" = "$rid" ] && done_flag=1; done
+    done < <(all_messages)
+  fi
+  if   [ -n "$closed" ];    then printf 'closed'
+  elif [ -n "$done_flag" ]; then printf 'done'
+  elif [ -n "$claimer" ];   then printf 'claimed:%s' "$claimer"
+  else printf 'open'; fi
+}
+
+cmd_task() {
+  local sub=${1:-}; shift || true
+  case "$sub" in
+    new) task_new "$@" ;; list) task_list "$@" ;; show) task_show "$@" ;;
+    claim) task_claim "$@" ;; close) task_close "$@" ;;
+    *) die 2 "task: unknown subcommand '$sub' (want new|list|show|claim|close)" ;;
+  esac
+}
+
+task_new() {
+  need_identity
+  local title="" ttype="" verifier="none" acc="" id="" json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --title)      title=${2:?}; shift 2 ;;
+      --type)       ttype=${2:?}; shift 2 ;;
+      --verifier)   verifier=${2:?}; shift 2 ;;
+      --acceptance) acc=${2:?}; shift 2 ;;
+      --id)         id=${2:?}; shift 2 ;;
+      --json)       json=1; shift ;;
+      *) die 2 "task new: unknown arg '$1'" ;;
+    esac
+  done
+  [ -n "$title" ] || die 2 "task new: --title required"
+  [ -n "$ttype" ] || die 2 "task new: --type required"
+  valid_task_type "$ttype" || die 2 "task new: invalid type '$ttype' (want: $VALID_TASK_TYPES)"
+  local body=""
+  if [ "$acc" = "-" ]; then body=$(cat)
+  elif [ -n "$acc" ] && [ -f "$acc" ]; then body=$(cat "$acc")
+  elif [ -n "$acc" ]; then die 2 "task new: acceptance file not found '$acc'"; fi
+  if [ -z "$id" ]; then
+    shopt -s nullglob; local existing=( "$TASKS"/*.md ); shopt -u nullglob
+    local n=$(( ${#existing[@]} + 1 ))
+    id=$(printf 'TASK-%03d-%s' "$n" "$(slugify "$title")")
+  fi
+  local f; f=$(task_file "$id")
+  [ -e "$f" ] && die 2 "task new: '$id' already exists (tasks are immutable)"
+  {
+    printf -- '---\n'
+    printf 'id: %s\ntitle: %s\ntype: %s\ncreated_by: %s\ntime: %s\nverifier: %s\nstatus_hint: open\n' \
+      "$id" "$title" "$ttype" "$OB_AGENT" "$(ts)" "$verifier"
+    printf -- '---\n'
+    printf '%s\n' "$body"
+  } | atomic_write "$f"
+  if [ $json -eq 1 ]; then
+    printf '{"id":"%s","path":"%s"}\n' "$(json_escape "$id")" "$(json_escape "$f")"
+  else printf '%s\n' "$id"; fi
+}
+
+task_list() {
+  local fstatus="" json=0
+  while [ $# -gt 0 ]; do case "$1" in
+    --status) fstatus=${2:?}; shift 2 ;; --json) json=1; shift ;;
+    *) die 2 "task list: unknown arg '$1'" ;; esac; done
+  shopt -s nullglob; local files=( "$TASKS"/*.md ); shopt -u nullglob
+  local f st
+  if [ $json -eq 1 ]; then
+    local out="[" first=1
+    for f in "${files[@]}"; do
+      parse_task "$f"; st=$(task_status "$t_id")
+      [ -n "$fstatus" ] && [ "${st%%:*}" != "$fstatus" ] && continue
+      [ $first -eq 1 ] || out+=","
+      out+=$(printf '{"id":"%s","type":"%s","status":"%s","title":"%s"}' \
+        "$(json_escape "$t_id")" "$(json_escape "$t_type")" "$(json_escape "$st")" "$(json_escape "$t_title")")
+      first=0
+    done
+    out+="]"; printf '%s\n' "$out"
+  else
+    [ ${#files[@]} -eq 0 ] && { printf '(no tasks)\n'; return 0; }
+    for f in "${files[@]}"; do
+      parse_task "$f"; st=$(task_status "$t_id")
+      [ -n "$fstatus" ] && [ "${st%%:*}" != "$fstatus" ] && continue
+      printf '%-26s %-9s %-16s %s\n' "$t_id" "$t_type" "$st" "$t_title"
+    done
+  fi
+}
+
+task_show() {
+  local id="" json=0
+  while [ $# -gt 0 ]; do case "$1" in
+    --json) json=1; shift ;; -*) die 2 "task show: unknown flag '$1'" ;;
+    *) if [ -z "$id" ]; then id=$1; else die 2 "task show: too many args"; fi; shift ;; esac; done
+  [ -n "$id" ] || die 2 "task show: <id> required"
+  task_exists "$id" || die 4 "task show: '$id' not found"
+  parse_task "$(task_file "$id")"
+  local st; st=$(task_status "$id")
+  if [ $json -eq 1 ]; then
+    printf '{"id":"%s","title":"%s","type":"%s","status":"%s","created_by":"%s","verifier":"%s"}\n' \
+      "$(json_escape "$t_id")" "$(json_escape "$t_title")" "$(json_escape "$t_type")" \
+      "$(json_escape "$st")" "$(json_escape "$t_by")" "$(json_escape "$t_verifier")"
+    return 0
+  fi
+  printf '# %s  [%s]\n\n' "$t_id" "$st"
+  cat "$(task_file "$id")"
+  printf '\n--- thread ---\n'
+  local tid; tid=$(slugify "$id"); local f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    parse_msg "$f"
+    if [ "$(slugify "$m_slug")" = "$tid" ] || [ "$(slugify "$m_task")" = "$tid" ]; then
+      printf '%s  %-8s %s\n' "$m_id" "$m_type" "$m_author"
+    fi
+  done < <(all_messages)
+}
+
+task_claim() {
+  need_identity
+  local id="" why=""
+  while [ $# -gt 0 ]; do case "$1" in
+    -m) why=${2-}; shift 2 ;; -*) die 2 "task claim: unknown flag '$1'" ;;
+    *) if [ -z "$id" ]; then id=$1; else die 2 "task claim: too many args"; fi; shift ;; esac; done
+  [ -n "$id" ] || die 2 "task claim: <id> required"
+  task_exists "$id" || die 4 "task claim: '$id' not found"
+  if [ -n "$why" ]; then cmd_claim "$id" -m "$why"; else cmd_claim "$id"; fi
+}
+
+task_close() {
+  need_identity
+  local id="" reason=""
+  while [ $# -gt 0 ]; do case "$1" in
+    --reason) reason=${2:?}; shift 2 ;; -*) die 2 "task close: unknown flag '$1'" ;;
+    *) if [ -z "$id" ]; then id=$1; else die 2 "task close: too many args"; fi; shift ;; esac; done
+  [ -n "$id" ] || die 2 "task close: <id> required"
+  task_exists "$id" || die 4 "task close: '$id' not found"
+  local body="closed"
+  if [ "$reason" = "-" ]; then body=$(cat)
+  elif [ -n "$reason" ] && [ -f "$reason" ]; then body=$(cat "$reason")
+  elif [ -n "$reason" ]; then body=$reason; fi
+  TNOW=$(ts); new_record_path "$(slugify "$id")-close"
+  {
+    printf -- '---\n'
+    printf 'id: %s\nauthor: %s\ntype: decision\ntime: %s\nrefs: []\ntask: %s\nstatus: resolved\n' \
+      "$REC_ID" "$OB_AGENT" "$TNOW" "$id"
+    printf -- '---\n'
+    printf '%s\n' "$body"
+  } | atomic_write "$REC_PATH"
+  printf '%s\n' "$REC_PATH"
+}
+
+cmd_digest() {
+  local write=0 json=0
+  while [ $# -gt 0 ]; do case "$1" in
+    --write) write=1; shift ;; --json) json=1; shift ;;
+    *) die 2 "digest: unknown arg '$1'" ;; esac; done
+  local now; now=$(ts)
+  shopt -s nullglob; local tfiles=( "$TASKS"/*.md ); shopt -u nullglob
+  if [ $json -eq 1 ]; then
+    local out; out=$(printf '{"time":"%s","agents":%s,"tasks":[' "$now" "$(cmd_who --json)")
+    local first=1 f st
+    for f in "${tfiles[@]}"; do
+      parse_task "$f"; st=$(task_status "$t_id")
+      [ $first -eq 1 ] || out+=","
+      out+=$(printf '{"id":"%s","status":"%s"}' "$(json_escape "$t_id")" "$(json_escape "$st")"); first=0
+    done
+    out+="]}"; printf '%s\n' "$out"; return 0
+  fi
+  local tmp; tmp=$(mktemp)
+  {
+    printf '# OpenBoard digest — %s\n\n## Agents\n' "$now"
+    cmd_who 2>/dev/null || true
+    printf '\n## Tasks (open / claimed)\n'
+    local f st any=0
+    for f in "${tfiles[@]}"; do
+      parse_task "$f"; st=$(task_status "$t_id")
+      case "$st" in open|claimed:*) printf -- '- %s [%s] %s\n' "$t_id" "$st" "$t_title"; any=1 ;; esac
+    done
+    [ $any -eq 0 ] && printf '(none)\n'
+    printf '\n## Recent results\n'
+    cmd_read -n 5 --type result 2>/dev/null | grep -E '^## ' | sed 's/^## /- /' || true
+    printf '\n## Recent decisions\n'
+    cmd_read -n 5 --type decision 2>/dev/null | grep -E '^## ' | sed 's/^## /- /' || true
+  } > "$tmp"
+  if [ $write -eq 1 ]; then
+    atomic_write "$DIGEST" < "$tmp"; printf '%s\n' "$DIGEST"
+  else cat "$tmp"; fi
+  rm -f "$tmp"
+}
+
+cmd_verify() {
+  local id="" json=0
+  while [ $# -gt 0 ]; do case "$1" in
+    --task) id=${2:?}; shift 2 ;; --json) json=1; shift ;;
+    *) die 2 "verify: unknown arg '$1'" ;; esac; done
+  [ -n "$id" ] || die 2 "verify: --task required"
+  task_exists "$id" || die 4 "verify: task '$id' not found"
+  local v="$VERIFIERS/$id.sh"
+  [ -f "$v" ] || die 2 "verify: no verifier at $v"
+  local out ec
+  if out=$(bash "$v" 2>&1); then ec=0; else ec=$?; fi
+  if [ $json -eq 1 ]; then
+    local pass=false; [ $ec -eq 0 ] && pass=true
+    printf '{"task":"%s","pass":%s,"exit":%s,"output":"%s"}\n' \
+      "$(json_escape "$id")" "$pass" "$ec" "$(json_escape "$out")"
+  else
+    if [ $ec -eq 0 ]; then printf 'PASS  %s\n' "$id"; else printf 'FAIL  %s (exit %s)\n' "$id" "$ec"; fi
+    printf '%s\n' "$out"
+  fi
+  return $ec
+}
 
 # ---------------------------------------------------------------------------
 # Commands
@@ -484,6 +741,13 @@ usage: OB_AGENT=<name> board.sh <command> [args]
   result --task <slug> --branch <agent/x> --sha <sha> --evidence <file|-> [-m <msg>]
   review <result-id> --score <0-10> --verdict <pass|fail> [-m <msg>]
   sync [-m <msg>]
+  task new --title T --type X [--verifier V] [--acceptance <file|->] [--id ID] [--json]
+  task list [--status open|claimed|done|closed] [--json]
+  task show <id> [--json]
+  task claim <id> [-m <why>]
+  task close <id> [--reason <file|->]
+  digest [--write] [--json]
+  verify --task <id> [--json]
 EOF
 }
 
@@ -503,6 +767,9 @@ case "$cmd" in
   result)   cmd_result "$@" ;;
   review)   cmd_review "$@" ;;
   sync)     cmd_sync "$@" ;;
+  task)     cmd_task "$@" ;;
+  digest)   cmd_digest "$@" ;;
+  verify)   cmd_verify "$@" ;;
   help|-h|--help) usage ;;
   *) usage; exit 2 ;;
 esac

@@ -1,3 +1,4 @@
-# codex
-updated: 20260627T033622Z
-status: board-cli done: 9/9 tests pass on agent/codex@d4266ea; posted result, awaiting review
+name: codex
+role: unknown
+updated: 20260627T035041Z
+status: codex building Tier-2 (task lifecycle + digest + verify)

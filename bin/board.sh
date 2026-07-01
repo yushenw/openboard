@@ -94,7 +94,7 @@ new_record_path() {
 parse_msg() {
   local f=$1 line state=0 key val
   m_id= m_author= m_type= m_time= m_status= m_refs="[]" m_body=
-  m_slug= m_branch= m_sha= m_task= m_result= m_score= m_verdict=
+  m_slug= m_branch= m_sha= m_task= m_result= m_score= m_verdict= m_winner= m_mval=
   local body=()
   while IFS= read -r line || [ -n "$line" ]; do
     if [ "$state" = 0 ]; then
@@ -108,7 +108,7 @@ parse_msg() {
         time) m_time=$val ;; status) m_status=$val ;; refs) m_refs=$val ;;
         slug) m_slug=$val ;; branch) m_branch=$val ;; sha) m_sha=$val ;;
         task) m_task=$val ;; result) m_result=$val ;; score) m_score=$val ;;
-        verdict) m_verdict=$val ;;
+        verdict) m_verdict=$val ;; winner) m_winner=$val ;; metric_value) m_mval=$val ;;
       esac
     else
       body+=("$line")
@@ -156,7 +156,7 @@ valid_task_type() { local t=$1 v; for v in $VALID_TASK_TYPES; do [ "$t" = "$v" ]
 # parse a task spec file into t_* globals
 parse_task() {
   local f=$1 line state=0 key val
-  t_id= t_title= t_type= t_by= t_time= t_verifier= t_hint=
+  t_id= t_title= t_type= t_by= t_time= t_verifier= t_hint= t_metric= t_metric_dir=
   while IFS= read -r line || [ -n "$line" ]; do
     if [ "$state" = 0 ]; then [ "$line" = "---" ] && state=1; continue; fi
     [ "$line" = "---" ] && break
@@ -164,7 +164,7 @@ parse_task() {
     case "$key" in
       id) t_id=$val ;; title) t_title=$val ;; type) t_type=$val ;;
       created_by) t_by=$val ;; time) t_time=$val ;; verifier) t_verifier=$val ;;
-      status_hint) t_hint=$val ;;
+      status_hint) t_hint=$val ;; metric) t_metric=$val ;; metric_dir) t_metric_dir=$val ;;
     esac
   done < "$f"
 }
@@ -172,7 +172,7 @@ parse_task() {
 # authoritative status of a task id -> open | claimed:<who> | done | closed
 task_status() {
   local tid; tid=$(slugify "$1")
-  local f claimer="" closed="" done_flag=""
+  local f claimer="" closed="" done_flag="" winner=""
   local -a result_ids=()
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -180,7 +180,7 @@ task_status() {
     case "$m_type" in
       claim)    [ "$(slugify "$m_slug")" = "$tid" ] && [ "$m_status" = "open" ] && claimer=$m_author ;;
       result)   [ "$(slugify "$m_task")" = "$tid" ] && result_ids+=("$m_id") ;;
-      decision) [ "$(slugify "$m_task")" = "$tid" ] && closed=1 ;;
+      decision) if [ "$(slugify "$m_task")" = "$tid" ]; then closed=1; [ -n "$m_winner" ] && winner=$m_winner; fi ;;
     esac
   done < <(all_messages)
   if [ ${#result_ids[@]} -gt 0 ]; then
@@ -192,7 +192,8 @@ task_status() {
       for rid in "${result_ids[@]}"; do [ "$m_result" = "$rid" ] && done_flag=1; done
     done < <(all_messages)
   fi
-  if   [ -n "$closed" ];    then printf 'closed'
+  if   [ -n "$winner" ];    then printf 'promoted:%s' "$winner"
+  elif [ -n "$closed" ];    then printf 'closed'
   elif [ -n "$done_flag" ]; then printf 'done'
   elif [ -n "$claimer" ];   then printf 'claimed:%s' "$claimer"
   else printf 'open'; fi
@@ -203,13 +204,14 @@ cmd_task() {
   case "$sub" in
     new) task_new "$@" ;; list) task_list "$@" ;; show) task_show "$@" ;;
     claim) task_claim "$@" ;; close) task_close "$@" ;;
-    *) die 2 "task: unknown subcommand '$sub' (want new|list|show|claim|close)" ;;
+    results) task_results "$@" ;; rank) task_rank "$@" ;; promote) task_promote "$@" ;;
+    *) die 2 "task: unknown subcommand '$sub' (want new|list|show|claim|close|results|rank|promote)" ;;
   esac
 }
 
 task_new() {
   need_identity
-  local title="" ttype="" verifier="none" acc="" id="" json=0
+  local title="" ttype="" verifier="none" acc="" id="" json=0 metric="" mdir="max"
   while [ $# -gt 0 ]; do
     case "$1" in
       --title)      title=${2:?}; shift 2 ;;
@@ -217,6 +219,8 @@ task_new() {
       --verifier)   verifier=${2:?}; shift 2 ;;
       --acceptance) acc=${2:?}; shift 2 ;;
       --id)         id=${2:?}; shift 2 ;;
+      --metric)     metric=${2:?}; shift 2 ;;
+      --metric-dir) mdir=${2:?}; shift 2 ;;
       --json)       json=1; shift ;;
       *) die 2 "task new: unknown arg '$1'" ;;
     esac
@@ -239,6 +243,7 @@ task_new() {
     printf -- '---\n'
     printf 'id: %s\ntitle: %s\ntype: %s\ncreated_by: %s\ntime: %s\nverifier: %s\nstatus_hint: open\n' \
       "$id" "$title" "$ttype" "$OB_AGENT" "$(ts)" "$verifier"
+    [ -n "$metric" ] && printf 'metric: %s\nmetric_dir: %s\n' "$metric" "$mdir"
     printf -- '---\n'
     printf '%s\n' "$body"
   } | atomic_write "$f"
@@ -337,6 +342,136 @@ task_close() {
   printf '%s\n' "$REC_PATH"
 }
 
+# ---------------------------------------------------------------------------
+# Tier-3: objective-driven competing results (rank / promote)
+# ---------------------------------------------------------------------------
+# newest-pass-wins verdict for a result id: pass | fail | none
+review_verdict() {
+  local rid=$1 f seen=none
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    parse_msg "$f"
+    [ "$m_type" = "review" ] || continue
+    [ "$m_result" = "$rid" ] || continue
+    [ "$m_verdict" = "pass" ] && { echo "pass"; return 0; }
+    seen=fail
+  done < <(all_messages)
+  echo "$seen"
+}
+
+# fill RES_ROWS (caller-declared) with "resultid|author|metric|verdict" for a task
+_collect_results() {
+  local tid; tid=$(slugify "$1")
+  RES_ROWS=()
+  local f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    parse_msg "$f"
+    [ "$m_type" = "result" ] || continue
+    [ "$(slugify "$m_task")" = "$tid" ] || continue
+    local rid=$m_id auth=$m_author mv=${m_mval:-} vd
+    vd=$(review_verdict "$rid")
+    RES_ROWS+=("$rid|$auth|${mv:--}|$vd")
+  done < <(all_messages)
+}
+
+task_results() {
+  local id="" json=0
+  while [ $# -gt 0 ]; do case "$1" in
+    --json) json=1; shift ;; -*) die 2 "task results: unknown flag '$1'" ;;
+    *) if [ -z "$id" ]; then id=$1; else die 2 "task results: too many args"; fi; shift ;; esac; done
+  [ -n "$id" ] || die 2 "task results: <id> required"
+  task_exists "$id" || die 4 "task results: '$id' not found"
+  local -a RES_ROWS; _collect_results "$id"
+  if [ $json -eq 1 ]; then
+    local out="[" first=1 row rid a mv vd
+    for row in "${RES_ROWS[@]}"; do
+      IFS='|' read -r rid a mv vd <<<"$row"
+      [ $first -eq 1 ] || out+=","
+      out+=$(printf '{"id":"%s","author":"%s","metric":"%s","review":"%s"}' \
+        "$(json_escape "$rid")" "$(json_escape "$a")" "$(json_escape "$mv")" "$(json_escape "$vd")")
+      first=0
+    done
+    out+="]"; printf '%s\n' "$out"
+  else
+    [ ${#RES_ROWS[@]} -eq 0 ] && { printf '(no results for %s)\n' "$id"; return 0; }
+    printf '%-42s %-8s %-8s %s\n' RESULT AUTHOR METRIC REVIEW
+    local row rid a mv vd
+    for row in "${RES_ROWS[@]}"; do
+      IFS='|' read -r rid a mv vd <<<"$row"
+      printf '%-42s %-8s %-8s %s\n' "$rid" "$a" "$mv" "$vd"
+    done
+  fi
+}
+
+task_rank() {
+  local id="" json=0
+  while [ $# -gt 0 ]; do case "$1" in
+    --json) json=1; shift ;; -*) die 2 "task rank: unknown flag '$1'" ;;
+    *) if [ -z "$id" ]; then id=$1; else die 2 "task rank: too many args"; fi; shift ;; esac; done
+  [ -n "$id" ] || die 2 "task rank: <id> required"
+  task_exists "$id" || die 4 "task rank: '$id' not found"
+  parse_task "$(task_file "$id")"
+  local dir=${t_metric_dir:-max} mname=${t_metric:-metric_value}
+  local -a RES_ROWS; _collect_results "$id"
+  local -a cand=(); local row rid a mv vd
+  for row in "${RES_ROWS[@]}"; do
+    IFS='|' read -r rid a mv vd <<<"$row"
+    [ "$vd" = "pass" ] || continue
+    case "$mv" in ''|-|*[!0-9.]*) continue ;; esac
+    cand+=("$mv|$rid|$a")
+  done
+  if [ ${#cand[@]} -eq 0 ]; then
+    [ $json -eq 1 ] && { printf '[]\n'; return 0; }
+    printf '(no ranked candidates for %s: need a passing review + numeric metric_value)\n' "$id"; return 0
+  fi
+  local sflag="-gr"; [ "$dir" = "min" ] && sflag="-g"
+  local sorted; sorted=$(printf '%s\n' "${cand[@]}" | sort -t'|' -k1,1 $sflag)
+  if [ $json -eq 1 ]; then
+    local out="[" first=1 rank=0 v r au
+    while IFS='|' read -r v r au; do
+      [ -n "$v" ] || continue
+      rank=$((rank+1)); [ $first -eq 1 ] || out+=","
+      out+=$(printf '{"rank":%s,"metric":"%s","id":"%s","author":"%s"}' \
+        "$rank" "$(json_escape "$v")" "$(json_escape "$r")" "$(json_escape "$au")")
+      first=0
+    done <<<"$sorted"
+    out+="]"; printf '%s\n' "$out"
+  else
+    printf 'rank of %s by %s (%s):\n' "$id" "$mname" "$dir"
+    local rank=0 v r au
+    while IFS='|' read -r v r au; do
+      [ -n "$v" ] || continue
+      rank=$((rank+1)); printf '  #%-2s %-10s %-42s %s\n' "$rank" "$v" "$r" "$au"
+    done <<<"$sorted"
+  fi
+}
+
+task_promote() {
+  need_identity
+  local id="" rid="" why=""
+  while [ $# -gt 0 ]; do case "$1" in
+    -m) why=${2-}; shift 2 ;; -*) die 2 "task promote: unknown flag '$1'" ;;
+    *) if [ -z "$id" ]; then id=$1; elif [ -z "$rid" ]; then rid=$1; else die 2 "task promote: too many args"; fi; shift ;; esac; done
+  [ -n "$id" ]  || die 2 "task promote: <id> required"
+  [ -n "$rid" ] || die 2 "task promote: <result-id> required"
+  task_exists "$id" || die 4 "task promote: task '$id' not found"
+  [ -e "$LOG/$rid.md" ] || die 4 "task promote: result '$rid' not found"
+  parse_msg "$LOG/$rid.md"
+  [ "$m_type" = "result" ] || die 2 "task promote: '$rid' is not a result"
+  [ "$(slugify "$m_task")" = "$(slugify "$id")" ] || die 2 "task promote: '$rid' is not a result for '$id'"
+  [ -n "$why" ] || why="promoted $rid as winner of $id"
+  TNOW=$(ts); new_record_path "$(slugify "$id")-promote"
+  {
+    printf -- '---\n'
+    printf 'id: %s\nauthor: %s\ntype: decision\ntime: %s\nrefs: [%s]\ntask: %s\nwinner: %s\nstatus: resolved\n' \
+      "$REC_ID" "$OB_AGENT" "$TNOW" "$rid" "$id" "$rid"
+    printf -- '---\n'
+    printf '%s\n' "$why"
+  } | atomic_write "$REC_PATH"
+  printf '%s\n' "$REC_PATH"
+}
+
 cmd_digest() {
   local write=0 json=0
   while [ $# -gt 0 ]; do case "$1" in
@@ -387,12 +522,15 @@ cmd_verify() {
   [ -f "$v" ] || die 2 "verify: no verifier at $v"
   local out ec
   if out=$(bash "$v" 2>&1); then ec=0; else ec=$?; fi
+  local metrics; metrics=$(printf '%s\n' "$out" | sed -n 's/^METRICS:[[:space:]]*//p' | tail -1)
+  [ -n "$metrics" ] || metrics='{}'
   if [ $json -eq 1 ]; then
     local pass=false; [ $ec -eq 0 ] && pass=true
-    printf '{"task":"%s","pass":%s,"exit":%s,"output":"%s"}\n' \
-      "$(json_escape "$id")" "$pass" "$ec" "$(json_escape "$out")"
+    printf '{"task":"%s","pass":%s,"exit":%s,"metrics":%s,"output":"%s"}\n' \
+      "$(json_escape "$id")" "$pass" "$ec" "$metrics" "$(json_escape "$out")"
   else
     if [ $ec -eq 0 ]; then printf 'PASS  %s\n' "$id"; else printf 'FAIL  %s (exit %s)\n' "$id" "$ec"; fi
+    [ "$metrics" != '{}' ] && printf 'metrics: %s\n' "$metrics"
     printf '%s\n' "$out"
   fi
   return $ec
@@ -637,13 +775,14 @@ cmd_claim() {
 
 cmd_result() {
   need_identity
-  local task="" branch="" sha="" evidence="" msg=""
+  local task="" branch="" sha="" evidence="" msg="" mval=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --task)     task=${2:?}; shift 2 ;;
       --branch)   branch=${2:?}; shift 2 ;;
       --sha)      sha=${2:?}; shift 2 ;;
       --evidence) evidence=${2:?}; shift 2 ;;
+      --metric)   mval=${2:?}; shift 2 ;;
       -m)         msg=${2-}; shift 2 ;;
       *) die 2 "result: unknown arg '$1'" ;;
     esac
@@ -668,6 +807,7 @@ cmd_result() {
     printf 'task: %s\n' "$task"
     printf 'branch: %s\n' "$branch"
     printf 'sha: %s\n' "$sha"
+    [ -n "$mval" ] && printf 'metric_value: %s\n' "$mval"
     printf 'status: open\n'
     printf -- '---\n'
     [ -n "$msg" ] && printf '%s\n\n' "$msg"
@@ -738,16 +878,19 @@ usage: OB_AGENT=<name> board.sh <command> [args]
   new [--json]
   status <text>
   claim <slug> [-m <why>]
-  result --task <slug> --branch <agent/x> --sha <sha> --evidence <file|-> [-m <msg>]
+  result --task <slug> --branch <agent/x> --sha <sha> --evidence <file|-> [--metric <value>] [-m <msg>]
   review <result-id> --score <0-10> --verdict <pass|fail> [-m <msg>]
   sync [-m <msg>]
-  task new --title T --type X [--verifier V] [--acceptance <file|->] [--id ID] [--json]
+  task new --title T --type X [--verifier V] [--acceptance <file|->] [--id ID] [--metric <name>] [--metric-dir max|min] [--json]
   task list [--status open|claimed|done|closed] [--json]
   task show <id> [--json]
   task claim <id> [-m <why>]
   task close <id> [--reason <file|->]
   digest [--write] [--json]
   verify --task <id> [--json]
+  task results <id> [--json]
+  task rank <id> [--json]
+  task promote <id> <result-id> [-m <why>]
 EOF
 }
 

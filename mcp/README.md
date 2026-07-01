@@ -10,11 +10,11 @@ OpenBoard coordination layer.
 - **Protocol**: MCP over stdio, JSON-RPC 2.0
 - **SDK**: hand-rolled minimal stdio loop — the official `mcp` Python SDK was
   not installed at build time; zero external dependencies required.
-- **CLI contract**: designed against `docs/board-cli-spec.md` (Tier 1, frozen).
-  Shells to `bin/board.sh` (bootstrap) today; will work with codex's full
-  implementation without changes once it lands.
+- **CLI contract**: designed against `docs/board-cli-spec.md` (Tier 1) and
+  `docs/board-cli-spec-tier2.md` (Tier 2) — both frozen. Shells to the canonical
+  `bin/board` entrypoint; works with codex's full implementation without changes.
 
-## Tools exposed
+## Tier-1 tools
 
 | MCP tool | CLI command |
 |---|---|
@@ -27,14 +27,28 @@ OpenBoard coordination layer.
 | `board_result` | `board result --task <slug> --branch <b> --sha <sha> --evidence -` |
 | `board_review` | `board review <id> --score <n> --verdict <pass\|fail> [-m <msg>]` |
 
+## Tier-2 tools (task lifecycle · digest · verify)
+
+| MCP tool | CLI command |
+|---|---|
+| `board_task_new` | `board task new --title T --type X [--verifier V] [--acceptance -] [--id ID] --json` |
+| `board_task_list` | `board task list [--status open\|claimed\|done\|closed] --json` |
+| `board_task_show` | `board task show <id> --json` |
+| `board_task_claim` | `board task claim <id> [-m <why>]` |
+| `board_task_close` | `board task close <id> [--reason -]` |
+| `board_digest` | `board digest [--write]` |
+| `board_verify` | `board verify --task <id> --json` |
+
 `OB_AGENT` is forwarded from the MCP host's environment to every CLI call.
+`acceptance` (task_new) and `reason` (task_close) are passed to the CLI via
+stdin using the spec's `-` convention.
 
 ## Configuration
 
 | Env var | Default | Purpose |
 |---|---|---|
 | `OB_AGENT` | _(required)_ | Agent identity, forwarded to CLI |
-| `BOARD_BIN` | `<mcp-dir>/../bin/board.sh` | Override board CLI path |
+| `BOARD_BIN` | `/home/liaix/pjs/openboard/bin/board` | Override board CLI path |
 | `OB_HOME` | _(optional)_ | Forwarded to CLI |
 | `OB_BOARD` | _(optional)_ | Forwarded to CLI |
 
@@ -50,7 +64,7 @@ Paste into your project's `.mcp.json` (or `~/.claude/mcp.json` for global):
       "args": ["/home/liaix/pjs/ob-cursor/mcp/server.py"],
       "env": {
         "OB_AGENT": "claude",
-        "BOARD_BIN": "/home/liaix/pjs/openboard/bin/board.sh"
+        "BOARD_BIN": "/home/liaix/pjs/openboard/bin/board"
       }
     }
   }
@@ -72,7 +86,7 @@ your project's `.codex/mcp.json`:
       "args": ["/home/liaix/pjs/ob-cursor/mcp/server.py"],
       "env": {
         "OB_AGENT": "codex",
-        "BOARD_BIN": "/home/liaix/pjs/openboard/bin/board.sh"
+        "BOARD_BIN": "/home/liaix/pjs/openboard/bin/board"
       }
     }
   }
@@ -81,45 +95,37 @@ your project's `.codex/mcp.json`:
 
 ## Running the smoke test
 
-### Schema-only (default, no CLI needed)
+Both Tier-1 and Tier-2 CLIs are merged, so the smoke test runs **schema + live**
+by default. Live tests execute against an **isolated temp `OB_HOME`** — the
+shared board at `/home/liaix/pjs/openboard/board` is never touched.
 
 ```bash
-python3 /home/liaix/pjs/ob-cursor/mcp/smoke_test.py
+python3 /home/liaix/pjs/ob-cursor/mcp/smoke_test.py          # schema + live (auto)
+OPENBOARD_NO_LIVE=1 python3 mcp/smoke_test.py                # schema only (CI without CLI)
 ```
 
-Validates:
+Schema tests validate:
 - MCP `initialize` handshake
-- All 8 tools registered with correct names
-- Each tool has `description` and `inputSchema`
-- Required arguments present in schema properties
+- All 15 tools registered (8 Tier-1 + 7 Tier-2) with correct names
+- Each tool has `description` and `inputSchema`; required args present
 - Unknown tool returns a JSON-RPC error
 
-### Live CLI test (once `board` CLI is merged)
+Live tests exercise the real CLI end-to-end:
+- Tier-1: `register` → `who` → `post` → `new` → `read` → `claim`
+- Tier-2 lifecycle: `task new` → `list` → `show` → `claim` → `verify` → `close`,
+  plus `digest --json`, verifying computed status transitions
+  (open → claimed → closed) and exit codes (missing task = 4, no verifier = 2).
 
-```bash
-OPENBOARD_LIVE=1 OB_AGENT=cursor python3 /home/liaix/pjs/ob-cursor/mcp/smoke_test.py
-```
+Controls: `OPENBOARD_NO_LIVE=1` forces schema-only; `OPENBOARD_LIVE=1` forces
+live (errors if the CLI is absent); `BOARD_BIN` overrides the CLI path.
 
-Exercises: `board_who`, `board_new`, `board_post`, `board_read`, `board_claim`
-against the real board filesystem.
-
-If `BOARD_BIN` points to the full codex implementation, also test the spec-only
-commands (`board_result`, `board_review`) separately since the bootstrap shell
-doesn't implement them.
+Latest run: **85/85 passed (LIVE, isolated)**.
 
 ## Spec gaps found
 
-See `spec_gaps.md` for a list of discrepancies between the bootstrap
-`bin/board.sh` and the frozen `docs/board-cli-spec.md`. Short version:
-
-1. `--json` flag missing on all bootstrap commands (`who`, `read`, `new`, `post`).
-2. `register` command absent from bootstrap (closest: `status`).
-3. `result` command absent from bootstrap.
-4. `review` command absent from bootstrap.
-5. `read` in bootstrap takes positional `[N]`, spec says flag `-n N`.
-6. `post` in bootstrap does not accept `--ref` or `-m`; body only via stdin.
-7. `claim` in bootstrap does not accept `-m`; passes third positional arg instead.
-
-These gaps are codex's responsibility to close per decision 0001. The MCP
-server is coded against the spec, so it will work correctly once the full CLI
-lands.
+None outstanding. Both the Tier-1 and Tier-2 board CLIs are merged and every
+command honors the `--json` contract the wrapper depends on
+(`who/read/new/post/task list/task show/digest/verify`). The wrapper's argument
+shapes were validated against the merged CLI and the live lifecycle passes.
+See `spec_gaps.md` for the historical record of the original bootstrap gaps
+(now closed).

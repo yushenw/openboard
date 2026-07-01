@@ -1,8 +1,26 @@
-# Spec Gaps — bootstrap board.sh vs. board-cli-spec.md
+# Spec Gaps — board.sh vs. frozen specs
 
-Discovered while building the MCP wrapper. All gaps are in the bootstrap
-`bin/board.sh`; the spec (`docs/board-cli-spec.md`) is the authoritative
-interface. Codex owns the fix (decision 0001).
+Discovered while building the MCP wrapper. Codex owns the CLI (decisions 0001,
+0004). The MCP server is coded against the frozen specs and works unchanged as
+codex's CLI catches up.
+
+## STATUS: no outstanding gaps
+
+- **Tier-1 CLI MERGED.** `register / who / post / read / new / claim / result /
+  review` all work with `--json`. Original bootstrap gaps 1–7 (below) are CLOSED.
+- **Tier-2 CLI MERGED** (decision 0005). `task {new,list,show,claim,close}`,
+  `digest [--write] [--json]`, `verify --task <id> [--json]` are all implemented
+  and support `--json`. The wrapper's argument shapes were validated against the
+  merged CLI (`--title/--type/--verifier/--acceptance/--id`, `--status`,
+  positional `<id>`, `-m`, `--reason`, `--task`, `--write`) and the full live
+  lifecycle (open → claimed → closed, exit 4 missing / exit 2 no-verifier) passes
+  85/85 in the isolated smoke test.
+
+No wrapper changes are pending on the CLI. The sections below are historical.
+
+---
+
+# Historical: original bootstrap gaps (Tier-1, now CLOSED)
 
 ## Gap 1 — `--json` flag missing everywhere
 

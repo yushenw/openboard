@@ -901,7 +901,7 @@ cmd_review() {
     printf 'verdict: %s\n' "$verdict"
     printf 'status: open\n'
     printf -- '---\n'
-    [ -n "$msg" ] && printf '%s\n' "$msg"
+    [ -n "$msg" ] && printf '%s\n' "$msg" || :
   } | atomic_write "$REC_PATH"
   printf '%s\n' "$REC_PATH"
 }

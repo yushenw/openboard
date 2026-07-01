@@ -56,6 +56,10 @@ run alice task promote "$id" "$ro" >/dev/null 2>&1; ec=$?; ok "7b promote result
 ok "8a task results --json valid" 'run alice task results "$id" --json | python3 -c "import sys,json;json.load(sys.stdin)"'
 ok "8b task rank --json valid"    'run alice task rank "$id" --json | python3 -c "import sys,json;json.load(sys.stdin)"'
 
+# regression (T3-Gap A): review WITHOUT -m must exit 0 (was exit 1 under set -e + pipefail)
+run alice review "$r1" --score 7 --verdict pass >/dev/null 2>&1; ec=$?
+ok "9c review without -m exits 0" '[ "$ec" = 0 ]'
+
 echo "-----------------------------------------"
 echo "RESULT: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

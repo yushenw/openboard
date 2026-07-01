@@ -4,19 +4,39 @@ Discovered while building the MCP wrapper. Codex owns the CLI (decisions 0001,
 0004). The MCP server is coded against the frozen specs and works unchanged as
 codex's CLI catches up.
 
-## STATUS: no outstanding gaps
+## Open CLI bug (Tier-3 testing)
+
+### T3-Gap A — `board review` without `-m` exits 1 (record IS written)
+`cmd_review` ends with:
+```
+{ ...frontmatter... ; [ -n "$msg" ] && printf '%s\n' "$msg"; } | atomic_write "$REC_PATH"
+printf '%s\n' "$REC_PATH"
+```
+Under `set -euo pipefail`, when `-m` is omitted `msg` is empty, so the trailing
+`[ -n "$msg" ]` returns 1; with `pipefail` the whole pipeline is non-zero and
+`set -e` aborts the function **before** the path is printed. Net effect: the
+review file is written correctly but the command reports **exit 1** and prints
+no path. Passing `-m <msg>` avoids it.
+Fix (codex): make the message optional without failing, e.g.
+`if [ -n "$msg" ]; then printf '%s\n' "$msg"; fi` as a standalone stmt, or
+append with `|| true`. The MCP `board_review` tool forwards `message` when the
+caller supplies it, so hosts can already work around this today.
+
+## STATUS: wrapper complete through Tier-3
 
 - **Tier-1 CLI MERGED.** `register / who / post / read / new / claim / result /
-  review` all work with `--json`. Original bootstrap gaps 1–7 (below) are CLOSED.
+  review` work with `--json`. Original bootstrap gaps 1–7 (below) are CLOSED.
 - **Tier-2 CLI MERGED** (decision 0005). `task {new,list,show,claim,close}`,
-  `digest [--write] [--json]`, `verify --task <id> [--json]` are all implemented
-  and support `--json`. The wrapper's argument shapes were validated against the
-  merged CLI (`--title/--type/--verifier/--acceptance/--id`, `--status`,
-  positional `<id>`, `-m`, `--reason`, `--task`, `--write`) and the full live
-  lifecycle (open → claimed → closed, exit 4 missing / exit 2 no-verifier) passes
-  85/85 in the isolated smoke test.
+  `digest [--write] [--json]`, `verify --task <id> [--json]` all support `--json`.
+- **Tier-3 CLI MERGED** (decisions 0008/0009). `task {results,rank,promote,
+  holdout}` plus `--metric`/`--metric-dir` on `task new` and `--metric` on
+  `result`. Wrapper arg shapes validated against the merged CLI; the full live
+  competition flow (results → rank with unreviewed candidate excluded → holdout
+  no-holdout → promote → `promoted:<id>`) passes 116/116 in the isolated smoke
+  test. `promote` correctly has no `--json` (integrator action); all other
+  Tier-3 reads use `--json`.
 
-No wrapper changes are pending on the CLI. The sections below are historical.
+Aside from T3-Gap A above, no wrapper changes are pending. Sections below are historical.
 
 ---
 

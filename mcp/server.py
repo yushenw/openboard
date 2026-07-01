@@ -243,6 +243,10 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "Evidence text (test output, logs). Pass '-' to read from stdin instead.",
                 },
+                "metric": {
+                    "type": "number",
+                    "description": "Optional primary metric value (Tier-3) — the number ranking reads.",
+                },
                 "message": {
                     "type": "string",
                     "description": "Optional human-readable summary.",
@@ -313,6 +317,15 @@ TOOLS: list[dict[str, Any]] = [
                 "id": {
                     "type": "string",
                     "description": "Optional explicit task id, e.g. TASK-007-foo.",
+                },
+                "metric": {
+                    "type": "string",
+                    "description": "Tier-3: name of the PRIMARY metric to rank by, e.g. tps.",
+                },
+                "metric_dir": {
+                    "type": "string",
+                    "enum": ["max", "min"],
+                    "description": "Tier-3: optimization direction for the metric (default max).",
                 },
             },
             "required": ["title", "type"],
@@ -431,6 +444,105 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["task"],
         },
     },
+    # ---------------------------- Tier-3 tools ----------------------------
+    {
+        "name": "board_task_results",
+        "description": (
+            "List all results for a task: result-id, author, metric_value, and review "
+            "verdict (pass/fail/none). exit 4 if the task does not exist."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Task id, e.g. TASK-001-foo.",
+                },
+            },
+            "required": ["task"],
+        },
+    },
+    {
+        "name": "board_task_rank",
+        "description": (
+            "Rank a task's results that have BOTH a passing review AND a numeric "
+            "metric_value, ordered by the task's metric_dir (max/min). #1 is the "
+            "candidate winner. Results lacking a passing review or metric are excluded."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Task id to rank.",
+                },
+            },
+            "required": ["task"],
+        },
+    },
+    {
+        "name": "board_task_promote",
+        "description": (
+            "Integrator action: promote a result as the task winner. Runs the private "
+            "holdout first; if the verdict is diverged or guardrail-fail the promote is "
+            "REFUSED (exit 5) unless force=true. Posts a decision with winner + holdout "
+            "verdict; task status becomes promoted:<result-id>. "
+            "exit 4 if task/result missing, exit 2 if the result is not for this task."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Task id.",
+                },
+                "result_id": {
+                    "type": "string",
+                    "description": "Result message id to promote as winner.",
+                },
+                "tolerance": {
+                    "type": "number",
+                    "description": "Holdout tolerance fraction (default 0.05).",
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "Promote even if the holdout diverges / fails guardrails.",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Optional reason recorded in the decision.",
+                },
+            },
+            "required": ["task", "result_id"],
+        },
+    },
+    {
+        "name": "board_task_holdout",
+        "description": (
+            "Run the private holdout verifier on a candidate result before promotion. "
+            "Verdict = confirmed | diverged | guardrail-fail | no-holdout. confirmed = "
+            "holdout exit 0 AND |holdout-claimed|/claimed <= tolerance. "
+            "exit 0 iff confirmed/no-holdout. exit 4 if task/result missing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Task id.",
+                },
+                "result_id": {
+                    "type": "string",
+                    "description": "Result message id to re-verify against the holdout.",
+                },
+                "tolerance": {
+                    "type": "number",
+                    "description": "Tolerance fraction for metric divergence (default 0.05).",
+                },
+            },
+            "required": ["task", "result_id"],
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -492,29 +604,19 @@ def handle_board_claim(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_board_result(args: dict[str, Any]) -> dict[str, Any]:
+    # Evidence is always streamed via stdin (--evidence -): the "evidence" arg
+    # holds the literal text whether or not the caller passed the sentinel "-".
     evidence = args["evidence"]
-    if evidence == "-":
-        # caller passed the evidence inline; we write it via stdin
-        stdin_data = None  # nothing extra; caller must have piped it — use message field
-        stdin_data = args.get("message", "")
-        cmd = ["result",
-               "--task", args["task"],
-               "--branch", args["branch"],
-               "--sha", args["sha"],
-               "--evidence", "-"]
-        if args.get("message"):
-            cmd += ["-m", args["message"]]
-        stdout, stderr, rc = _run_board(*cmd, stdin_data=evidence)
-    else:
-        # treat evidence as inline text — write to stdin with evidence=-
-        cmd = ["result",
-               "--task", args["task"],
-               "--branch", args["branch"],
-               "--sha", args["sha"],
-               "--evidence", "-"]
-        if args.get("message"):
-            cmd += ["-m", args["message"]]
-        stdout, stderr, rc = _run_board(*cmd, stdin_data=evidence)
+    cmd = ["result",
+           "--task", args["task"],
+           "--branch", args["branch"],
+           "--sha", args["sha"],
+           "--evidence", "-"]
+    if "metric" in args:
+        cmd += ["--metric", str(args["metric"])]
+    if args.get("message"):
+        cmd += ["-m", args["message"]]
+    stdout, stderr, rc = _run_board(*cmd, stdin_data=evidence)
     return _board_result(stdout, stderr, rc)
 
 
@@ -539,6 +641,10 @@ def handle_board_task_new(args: dict[str, Any]) -> dict[str, Any]:
         cmd += ["--verifier", args["verifier"]]
     if "id" in args:
         cmd += ["--id", args["id"]]
+    if "metric" in args:
+        cmd += ["--metric", args["metric"]]
+    if "metric_dir" in args:
+        cmd += ["--metric-dir", args["metric_dir"]]
     stdin_data = None
     if "acceptance" in args:
         cmd += ["--acceptance", "-"]
@@ -591,6 +697,40 @@ def handle_board_verify(args: dict[str, Any]) -> dict[str, Any]:
     return _board_result(stdout, stderr, rc)
 
 
+# ------------------------------ Tier-3 handlers ------------------------------
+
+def handle_board_task_results(args: dict[str, Any]) -> dict[str, Any]:
+    stdout, stderr, rc = _run_board("task", "results", args["task"], "--json")
+    return _board_result(stdout, stderr, rc)
+
+
+def handle_board_task_rank(args: dict[str, Any]) -> dict[str, Any]:
+    stdout, stderr, rc = _run_board("task", "rank", args["task"], "--json")
+    return _board_result(stdout, stderr, rc)
+
+
+def handle_board_task_promote(args: dict[str, Any]) -> dict[str, Any]:
+    # promote is an integrator action; the CLI does not emit --json.
+    cmd = ["task", "promote", args["task"], args["result_id"]]
+    if "tolerance" in args:
+        cmd += ["--tolerance", str(args["tolerance"])]
+    if args.get("force"):
+        cmd += ["--force"]
+    if "message" in args:
+        cmd += ["-m", args["message"]]
+    stdout, stderr, rc = _run_board(*cmd)
+    return _board_result(stdout, stderr, rc)
+
+
+def handle_board_task_holdout(args: dict[str, Any]) -> dict[str, Any]:
+    cmd = ["task", "holdout", args["task"], args["result_id"]]
+    if "tolerance" in args:
+        cmd += ["--tolerance", str(args["tolerance"])]
+    cmd += ["--json"]
+    stdout, stderr, rc = _run_board(*cmd)
+    return _board_result(stdout, stderr, rc)
+
+
 HANDLERS: dict[str, Any] = {
     # Tier-1
     "board_register": handle_board_register,
@@ -609,6 +749,11 @@ HANDLERS: dict[str, Any] = {
     "board_task_close": handle_board_task_close,
     "board_digest": handle_board_digest,
     "board_verify": handle_board_verify,
+    # Tier-3
+    "board_task_results": handle_board_task_results,
+    "board_task_rank": handle_board_task_rank,
+    "board_task_promote": handle_board_task_promote,
+    "board_task_holdout": handle_board_task_holdout,
 }
 
 # ---------------------------------------------------------------------------

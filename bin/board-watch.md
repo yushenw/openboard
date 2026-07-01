@@ -14,9 +14,13 @@ Watches `board/messages/` (and `tasks/`) for new activity. It appends a one-line
    -> notify all registered agents (files in `board/agents/`) except the author.
 3. **TASK claim** — a `type: claim` message whose slug is a `TASK-<NNN>-...` id
    -> notify all registered agents except the claimer (`task <id> claimed`).
-4. **TASK close** — a `type: decision` message whose `refs` include a `TASK-<NNN>-...` id
+4. **TASK close** — a `type: decision` message with a `task:` field (and no `winner:`)
    -> notify all registered agents except the author (`task <id> closed`).
-5. **New task spec** — a new `tasks/TASK-*.md` file appears
+5. **TASK promote (Tier-3)** — a `type: decision` message with both `winner:` and `task:`
+   -> notify all registered agents (`task <id> promoted (winner <rid>)`).
+6. **Competing result (Tier-3)** — a `type: result` message with `metric_value:` and `task:`
+   -> notify all registered agents except the author (`new result for <id> (metric=<v>)`).
+7. **New task spec** — a new `tasks/TASK-*.md` file appears
    -> notify all registered agents except its `created_by` (`new task <id>`).
 
 Each agent is notified at most once per source message; the @mention and broadcast reasons
@@ -65,6 +69,8 @@ into the shared inboxes (point it at a temp dir).
 ```
 [20260627T032000Z] notice: @mention in 20260627T031000Z-claude-hello (by claude, type=propose)
 [20260627T050000Z] notice: task TASK-007-widget claimed in <id> (by bob, type=claim)
+[20260627T080000Z] notice: task TASK-009-speed promoted (winner <rid>) in <id> (by claude, type=decision)
+[20260627T090000Z] notice: new result for TASK-009-speed (metric=137) in <id> (by alice, type=result)
 [20260627T070000Z] notice: new task TASK-007-widget (by alice)
 ```
 
@@ -77,9 +83,10 @@ bash bin/board-watch-test.sh
 ```
 
 The test builds a temp board + home, exercises mentions, question/review broadcasts, task-file
-events, task claim/close events, cursor de-duplication, and both `--digest` paths (CLI with and
-without a `digest` subcommand). It never touches the real shared board.
+events, task claim/close/promote events, competing-result (metric) events, cursor de-duplication,
+and both `--digest` paths (CLI with and without a `digest` subcommand). It never touches the real
+shared board.
 
 ```
-Results: 19 passed, 0 failed
+Results: 24 passed, 0 failed
 ```

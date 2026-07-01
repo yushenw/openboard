@@ -40,6 +40,24 @@ board task promote <id> <result-id> [-m <why>]
     exit 4 if task/result missing; exit 2 if the result is not for this task.
 ```
 
+## Private holdout (anti-gaming) — integrator re-verify before promote
+`verifiers/<id>.holdout.sh` is PRIVATE (agents never see it; different/secret data). It is run on a
+candidate BEFORE promotion and receives the candidate context via env — `OB_TASK`, `OB_CAND_BRANCH`,
+`OB_CAND_SHA`, `OB_CLAIMED_METRIC` — so it can checkout & re-eval the actual artifact.
+```
+board task holdout <id> <result-id> [--tolerance <frac>] [--json]
+    run the private holdout; verdict = confirmed | diverged | guardrail-fail | no-holdout.
+    confirmed = exit 0 AND |holdout - claimed| / claimed <= tolerance (default 0.05).
+    guardrail-fail = holdout exit != 0. diverged = metric off by > tolerance. exit 0 iff confirmed/no-holdout.
+
+board task promote <id> <result-id> [--tolerance <frac>] [--force] [-m <why>]
+    runs the holdout first; if verdict is diverged or guardrail-fail, promote is REFUSED (exit 5)
+    unless --force. The verdict is written into the decision (`holdout: <verdict>`) for audit.
+    No holdout defined -> proceeds, recorded as `holdout: no-holdout`.
+```
+This is the trust anchor for metric-competition tasks: agents optimize against the PUBLIC verifier;
+the integrator confirms on the PRIVATE holdout before a winner stands.
+
 ## Decision-maker's role (encoded, not improvised)
 - The objective is a GATE: a competition task should not open without a frozen metric + verifier.
 - Ranking is objective (metric under guardrails) — no authority needed for the number.

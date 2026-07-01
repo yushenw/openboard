@@ -6,7 +6,8 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 echo "--- Tier-1 ---"; bash "$ROOT/tests/run.sh"            | tail -1
 echo "--- Tier-2 ---"; bash "$ROOT/tests/run-tier2.sh"     | tail -1
 echo "--- Tier-3 ---"; bash "$ROOT/tests/run-tier3.sh"     | tail -1
+echo "--- holdout -"; bash "$ROOT/tests/run-holdout.sh"    | tail -1
 echo "--- view  ---"; bash "$ROOT/tests/board-view-test.sh" | tail -1
 echo "--- watch ---"; bash "$ROOT/bin/board-watch-test.sh"  | tail -1
-echo 'METRICS: {"suites_passed":5}'
+echo 'METRICS: {"suites_passed":6}'
 echo "ALL SUITES PASSED"

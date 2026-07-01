@@ -205,7 +205,8 @@ cmd_task() {
     new) task_new "$@" ;; list) task_list "$@" ;; show) task_show "$@" ;;
     claim) task_claim "$@" ;; close) task_close "$@" ;;
     results) task_results "$@" ;; rank) task_rank "$@" ;; promote) task_promote "$@" ;;
-    *) die 2 "task: unknown subcommand '$sub' (want new|list|show|claim|close|results|rank|promote)" ;;
+    holdout) task_holdout "$@" ;;
+    *) die 2 "task: unknown subcommand '$sub' (want new|list|show|claim|close|results|rank|promote|holdout)" ;;
   esac
 }
 
@@ -447,11 +448,54 @@ task_rank() {
   fi
 }
 
+# ---- private holdout: integrator re-verify a candidate before promote (anti-gaming) ----
+# sets HV_VERDICT (confirmed|diverged|guardrail-fail|no-holdout), HV_HOLD, HV_CLAIM, HV_EXIT
+run_holdout() {
+  local id=$1 rid=$2 tol=${3:-0.05}
+  HV_VERDICT="" HV_HOLD="" HV_CLAIM="" HV_EXIT=""
+  local hv="$VERIFIERS/$id.holdout.sh"
+  [ -f "$hv" ] || { HV_VERDICT="no-holdout"; return 0; }
+  parse_msg "$LOG/$rid.md"
+  local cbranch=$m_branch csha=$m_sha; HV_CLAIM=$m_mval
+  parse_task "$(task_file "$id")"; local mn=${t_metric:-}
+  local out ec
+  if out=$(OB_TASK="$id" OB_CAND_BRANCH="$cbranch" OB_CAND_SHA="$csha" OB_CLAIMED_METRIC="$HV_CLAIM" bash "$hv" 2>&1); then ec=0; else ec=$?; fi
+  HV_EXIT=$ec
+  local metrics; metrics=$(printf '%s\n' "$out" | sed -n 's/^METRICS:[[:space:]]*//p' | tail -1)
+  [ -n "$mn" ] && HV_HOLD=$(printf '%s' "$metrics" | sed -n 's/.*"'"$mn"'"[[:space:]]*:[[:space:]]*\([0-9.]*\).*/\1/p')
+  if [ "$ec" != 0 ]; then HV_VERDICT="guardrail-fail"; return 0; fi
+  if [ -z "$mn" ] || [ -z "$HV_CLAIM" ] || [ -z "$HV_HOLD" ]; then HV_VERDICT="confirmed"; return 0; fi
+  local within; within=$(awk -v h="$HV_HOLD" -v c="$HV_CLAIM" -v t="$tol" 'BEGIN{if(c==0){print(h==0)?1:0;exit} d=(h>c)?(h-c):(c-h); print(d/c<=t)?1:0}')
+  [ "$within" = 1 ] && HV_VERDICT="confirmed" || HV_VERDICT="diverged"
+}
+
+task_holdout() {
+  local id="" rid="" tol=0.05 json=0
+  while [ $# -gt 0 ]; do case "$1" in
+    --tolerance) tol=${2:?}; shift 2 ;; --json) json=1; shift ;;
+    -*) die 2 "task holdout: unknown flag '$1'" ;;
+    *) if [ -z "$id" ]; then id=$1; elif [ -z "$rid" ]; then rid=$1; else die 2 "task holdout: too many args"; fi; shift ;; esac; done
+  [ -n "$id" ]  || die 2 "task holdout: <id> required"
+  [ -n "$rid" ] || die 2 "task holdout: <result-id> required"
+  task_exists "$id" || die 4 "task holdout: task '$id' not found"
+  [ -e "$LOG/$rid.md" ] || die 4 "task holdout: result '$rid' not found"
+  run_holdout "$id" "$rid" "$tol"
+  if [ $json -eq 1 ]; then
+    printf '{"verdict":"%s","claimed":"%s","holdout":"%s","exit":"%s"}\n' \
+      "$HV_VERDICT" "$(json_escape "${HV_CLAIM:-}")" "$(json_escape "${HV_HOLD:-}")" "${HV_EXIT:-}"
+  else
+    printf 'holdout %s %s: verdict=%s claimed=%s holdout=%s exit=%s\n' \
+      "$id" "$rid" "$HV_VERDICT" "${HV_CLAIM:-–}" "${HV_HOLD:-–}" "${HV_EXIT:-–}"
+  fi
+  case "$HV_VERDICT" in confirmed|no-holdout) return 0 ;; *) return 1 ;; esac
+}
+
 task_promote() {
   need_identity
-  local id="" rid="" why=""
+  local id="" rid="" why="" tol=0.05 force=0
   while [ $# -gt 0 ]; do case "$1" in
-    -m) why=${2-}; shift 2 ;; -*) die 2 "task promote: unknown flag '$1'" ;;
+    -m) why=${2-}; shift 2 ;; --tolerance) tol=${2:?}; shift 2 ;; --force) force=1; shift ;;
+    -*) die 2 "task promote: unknown flag '$1'" ;;
     *) if [ -z "$id" ]; then id=$1; elif [ -z "$rid" ]; then rid=$1; else die 2 "task promote: too many args"; fi; shift ;; esac; done
   [ -n "$id" ]  || die 2 "task promote: <id> required"
   [ -n "$rid" ] || die 2 "task promote: <result-id> required"
@@ -460,12 +504,17 @@ task_promote() {
   parse_msg "$LOG/$rid.md"
   [ "$m_type" = "result" ] || die 2 "task promote: '$rid' is not a result"
   [ "$(slugify "$m_task")" = "$(slugify "$id")" ] || die 2 "task promote: '$rid' is not a result for '$id'"
+  run_holdout "$id" "$rid" "$tol"
+  case "$HV_VERDICT" in
+    guardrail-fail|diverged)
+      [ $force -eq 1 ] || die 5 "promote refused: holdout $HV_VERDICT (claimed=${HV_CLAIM:-–} holdout=${HV_HOLD:-–} exit=${HV_EXIT:-–}); use --force to override" ;;
+  esac
   [ -n "$why" ] || why="promoted $rid as winner of $id"
   TNOW=$(ts); new_record_path "$(slugify "$id")-promote"
   {
     printf -- '---\n'
-    printf 'id: %s\nauthor: %s\ntype: decision\ntime: %s\nrefs: [%s]\ntask: %s\nwinner: %s\nstatus: resolved\n' \
-      "$REC_ID" "$OB_AGENT" "$TNOW" "$rid" "$id" "$rid"
+    printf 'id: %s\nauthor: %s\ntype: decision\ntime: %s\nrefs: [%s]\ntask: %s\nwinner: %s\nholdout: %s\nstatus: resolved\n' \
+      "$REC_ID" "$OB_AGENT" "$TNOW" "$rid" "$id" "$rid" "$HV_VERDICT"
     printf -- '---\n'
     printf '%s\n' "$why"
   } | atomic_write "$REC_PATH"
@@ -890,7 +939,8 @@ usage: OB_AGENT=<name> board.sh <command> [args]
   verify --task <id> [--json]
   task results <id> [--json]
   task rank <id> [--json]
-  task promote <id> <result-id> [-m <why>]
+  task promote <id> <result-id> [--tolerance <frac>] [--force] [-m <why>]
+  task holdout <id> <result-id> [--tolerance <frac>] [--json]
 EOF
 }
 

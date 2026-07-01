@@ -7,9 +7,11 @@
 # Notices fire when, since the last scan:
 #   1. a new message @mentions an agent in its body                  -> notify that agent
 #   2. a new message's type is question|review                       -> notify all registered agents
-#   3. a new message is a TASK event:
+#   3. a new message is a TASK lifecycle event:
 #        - type=claim    whose slug is a TASK-<NNN>-... id            -> "task <id> claimed"
-#        - type=decision whose refs include a TASK-<NNN>-... id       -> "task <id> closed"
+#        - type=decision with a task: field (no winner)              -> "task <id> closed"
+#        - type=decision with winner:+task: (Tier-3 promote)         -> "task <id> promoted (winner <rid>)"
+#        - type=result   with metric_value:+task: (Tier-3)           -> "new result for <id> (metric=<v>)"
 #   4. a new tasks/TASK-*.md spec file appears                        -> "new task <id>"
 # For (2)-(4) every registered agent except the actor/creator is notified.
 # Each agent is notified at most once per source (mentions+broadcast combine).
@@ -116,10 +118,12 @@ registered_agents() {
     done < <(ls -1 "$AGENTS_DIR"/*.md 2>/dev/null || true)
 }
 
-# parse_message <file> -> sets MSG_ID MSG_AUTHOR MSG_TYPE MSG_SLUG MSG_REFS MSG_BODY
+# parse_message <file> -> sets MSG_ID MSG_AUTHOR MSG_TYPE MSG_SLUG MSG_REFS
+#                          MSG_TASK MSG_WINNER MSG_MVAL MSG_BODY
 parse_message() {
     local f="$1" line in_front=0 past_front=0
-    MSG_ID=""; MSG_AUTHOR=""; MSG_TYPE=""; MSG_SLUG=""; MSG_REFS=""; MSG_BODY=""
+    MSG_ID=""; MSG_AUTHOR=""; MSG_TYPE=""; MSG_SLUG=""; MSG_REFS=""
+    MSG_TASK=""; MSG_WINNER=""; MSG_MVAL=""; MSG_BODY=""
     while IFS= read -r line; do
         if [[ "$line" == "---" ]]; then
             if [[ $in_front -eq 0 ]]; then in_front=1; else past_front=1; in_front=0; fi
@@ -127,11 +131,14 @@ parse_message() {
         fi
         if [[ $in_front -eq 1 ]]; then
             case "$line" in
-                id:\ *)     MSG_ID="${line#id: }" ;;
-                author:\ *) MSG_AUTHOR="${line#author: }" ;;
-                type:\ *)   MSG_TYPE="${line#type: }" ;;
-                slug:\ *)   MSG_SLUG="${line#slug: }" ;;
-                refs:\ *)   MSG_REFS="${line#refs: }" ;;
+                id:\ *)           MSG_ID="${line#id: }" ;;
+                author:\ *)       MSG_AUTHOR="${line#author: }" ;;
+                type:\ *)         MSG_TYPE="${line#type: }" ;;
+                slug:\ *)         MSG_SLUG="${line#slug: }" ;;
+                refs:\ *)         MSG_REFS="${line#refs: }" ;;
+                task:\ *)         MSG_TASK="${line#task: }" ;;
+                winner:\ *)       MSG_WINNER="${line#winner: }" ;;
+                metric_value:\ *) MSG_MVAL="${line#metric_value: }" ;;
             esac
         elif [[ $past_front -eq 1 ]]; then
             MSG_BODY="$MSG_BODY
@@ -167,7 +174,9 @@ scan_messages() {
 
         parse_message "$f"
 
-        # --- broadcast reason (question/review OR a task claim/close event) ---
+        # --- broadcast reason (question/review OR a task lifecycle event) ---
+        # Task id for decision/result events comes from the `task:` field (Tier-2/3
+        # CLI writes it there). Claims carry the id in the slugified `slug:` field.
         local broadcast_reason="" tid
         case "$MSG_TYPE" in
             question|review) broadcast_reason="type=$MSG_TYPE" ;;
@@ -175,8 +184,18 @@ scan_messages() {
                 tid="$(extract_task_id "$MSG_SLUG")"
                 [[ -n "$tid" ]] && broadcast_reason="task $tid claimed" ;;
             decision)
-                tid="$(extract_task_id "$MSG_REFS")"
-                [[ -n "$tid" ]] && broadcast_reason="task $tid closed" ;;
+                # Tier-3 promote: a decision carrying winner:+task: (check FIRST — a
+                # promote decision also has a task:, but is a promote, not a close).
+                if [[ -n "$MSG_WINNER" && -n "$MSG_TASK" ]]; then
+                    broadcast_reason="task $MSG_TASK promoted (winner $MSG_WINNER)"
+                elif [[ -n "$MSG_TASK" ]]; then
+                    broadcast_reason="task $MSG_TASK closed"
+                fi ;;
+            result)
+                # Tier-3 competing result carrying a primary metric_value.
+                if [[ -n "$MSG_MVAL" && -n "$MSG_TASK" ]]; then
+                    broadcast_reason="new result for $MSG_TASK (metric=$MSG_MVAL)"
+                fi ;;
         esac
 
         # --- collect @mentioned agents (exact tokens) ---

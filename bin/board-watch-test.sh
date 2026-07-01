@@ -28,18 +28,19 @@ ok()   { echo "  PASS: $*"; ((PASS++)) || true; }
 fail() { echo "  FAIL: $*"; ((FAIL++)) || true; }
 
 # Helper: write a fake message file
+# write_msg <id> <author> <type> <body> [extra_frontmatter_line ...]
+# extra lines are literal frontmatter, e.g. "slug: task-007-widget" or "winner: <rid>".
 write_msg() {
-    # write_msg <id> <author> <type> <body> [slug] [refs]
-    local id="$1" author="$2" type="$3" body="$4" slug="${5:-}" refs="${6:-[]}"
-    local f="$MESSAGES/${id}.md"
+    local id="$1" author="$2" type="$3" body="$4"; shift 4
+    local f="$MESSAGES/${id}.md" extra
     {
         echo "---"
         echo "id: $id"
         echo "author: $author"
         echo "type: $type"
         echo "time: ${id%%-*}"
-        echo "refs: $refs"
-        [[ -n "$slug" ]] && echo "slug: $slug"
+        echo "refs: []"
+        for extra in "$@"; do echo "$extra"; done
         echo "status: open"
         echo "---"
         echo "$body"
@@ -158,7 +159,7 @@ fi
 # Test 8: type=claim with a TASK slug -> "task <id> claimed" broadcast
 # ---------------------------------------------------------------------------
 echo "Test 8: task claim event broadcasts 'claimed'"
-write_msg "20260627T050000Z-bob-task-007-widget" "bob" "claim" "claiming task-007-widget" "task-007-widget"
+write_msg "20260627T050000Z-bob-task-007-widget" "bob" "claim" "claiming task-007-widget" "slug: task-007-widget"
 "$WATCH" --once 2>/dev/null
 
 if grep -q "task task-007-widget claimed" "$INBOX/alice.md" 2>/dev/null; then
@@ -176,7 +177,7 @@ fi
 # Test 9: a NON-task claim must NOT produce a task-event notice
 # ---------------------------------------------------------------------------
 echo "Test 9: ordinary (non-task) claim produces no task notice"
-write_msg "20260627T060000Z-charlie-sync-notify" "charlie" "claim" "claiming sync-notify" "sync-notify"
+write_msg "20260627T060000Z-charlie-sync-notify" "charlie" "claim" "claiming sync-notify" "slug: sync-notify"
 "$WATCH" --once 2>/dev/null
 
 if grep -q "20260627T060000Z-charlie-sync-notify" "$INBOX/alice.md" 2>/dev/null; then
@@ -186,10 +187,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 10: type=decision ref'ing a TASK -> "task <id> closed" broadcast
+# Test 10: type=decision with a task: field (no winner) -> "task <id> closed"
+# (matches the real CLI: close writes refs: [] + task: <id>)
 # ---------------------------------------------------------------------------
-echo "Test 10: task close (decision ref) broadcasts 'closed'"
-write_msg "20260627T070000Z-alice-close-007" "alice" "decision" "closing it" "" "[TASK-007-widget]"
+echo "Test 10: task close (decision with task: field) broadcasts 'closed'"
+write_msg "20260627T070000Z-alice-close-007" "alice" "decision" "closing it" "task: TASK-007-widget"
 "$WATCH" --once 2>/dev/null
 
 if grep -q "task TASK-007-widget closed" "$INBOX/bob.md" 2>/dev/null; then
@@ -199,9 +201,63 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 11: --digest skips when CLI has no digest subcommand
+# Test 11 (Tier-3): type=decision with winner:+task: -> "task <id> promoted (winner <rid>)"
 # ---------------------------------------------------------------------------
-echo "Test 11: --digest capability check (no digest subcommand -> skip)"
+echo "Test 11: task promote (decision winner) broadcasts 'promoted'"
+RID="20260627T075000Z-codex-task-009-speed"
+write_msg "20260627T080000Z-claude-task-009-speed-promote" "claude" "decision" \
+    "promoted the winner" "task: TASK-009-speed" "winner: $RID"
+"$WATCH" --once 2>/dev/null
+
+if grep -q "task TASK-009-speed promoted (winner $RID)" "$INBOX/bob.md" 2>/dev/null; then
+    ok "bob notified of task promote (with winner rid)"
+else
+    fail "bob missing task-promote notice"
+fi
+# a promote must NOT also emit a 'closed' notice for the same task
+if grep -q "task TASK-009-speed closed" "$INBOX/bob.md" 2>/dev/null; then
+    fail "promote incorrectly also fired a 'closed' notice"
+else
+    ok "promote did not double-fire as 'closed'"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 12 (Tier-3): type=result with metric_value:+task: -> "new result for <id> (metric=<v>)"
+# ---------------------------------------------------------------------------
+echo "Test 12: competing result with metric_value broadcasts 'new result'"
+write_msg "20260627T090000Z-alice-task-009-speed" "alice" "result" \
+    "evidence here" "task: TASK-009-speed" "branch: agent/alice" "sha: abc123" "metric_value: 137"
+"$WATCH" --once 2>/dev/null
+
+if grep -q "new result for TASK-009-speed (metric=137)" "$INBOX/bob.md" 2>/dev/null; then
+    ok "bob notified of competing result with metric"
+else
+    fail "bob missing competing-result notice"
+fi
+if grep -q "new result for TASK-009-speed (metric=137)" "$INBOX/alice.md" 2>/dev/null; then
+    fail "alice (author) should NOT be notified of own result"
+else
+    ok "alice (author) correctly skipped"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 13 (Tier-3): a plain result WITHOUT metric_value produces no notice
+# ---------------------------------------------------------------------------
+echo "Test 13: plain result (no metric_value) produces no notice"
+write_msg "20260627T095000Z-alice-task-009-speed-plain" "alice" "result" \
+    "just evidence" "task: TASK-009-speed" "branch: agent/alice" "sha: def456"
+"$WATCH" --once 2>/dev/null
+
+if grep -q "20260627T095000Z-alice-task-009-speed-plain" "$INBOX/bob.md" 2>/dev/null; then
+    fail "plain result should NOT notify anyone"
+else
+    ok "plain result correctly produced no notice"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 14: --digest skips when CLI has no digest subcommand
+# ---------------------------------------------------------------------------
+echo "Test 14: --digest capability check (no digest subcommand -> skip)"
 STUB_NO="$TMPDIR_ROOT/board-nodigest"
 cat > "$STUB_NO" <<'EOF'
 #!/usr/bin/env bash
@@ -222,9 +278,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 12: --digest runs when CLI advertises a digest subcommand
+# Test 15: --digest runs when CLI advertises a digest subcommand
 # ---------------------------------------------------------------------------
-echo "Test 12: --digest runs when CLI supports digest"
+echo "Test 15: --digest runs when CLI supports digest"
 STUB_YES="$TMPDIR_ROOT/board-digest"
 cat > "$STUB_YES" <<'EOF'
 #!/usr/bin/env bash

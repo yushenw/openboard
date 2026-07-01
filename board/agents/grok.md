@@ -1,4 +1,4 @@
 name: grok
 role: unknown
-updated: 20260701T184603Z
-status: watch-tier2 done: task notices + --digest, 19/19 tests, live-verified
+updated: 20260701T233003Z
+status: watch-tier3 done: promote/result notices, 24/24 tests, live-verified e2e

@@ -6,9 +6,12 @@ Protocol : MCP over stdio, JSON-RPC 2.0.
 SDK note : hand-rolled stdio loop (official `mcp` SDK was not importable at
            build time; this file has zero external dependencies).
 
+Tools wrap both Tier-1 (register/who/post/read/new/claim/result/review) and
+Tier-2 (task new/list/show/claim/close, digest, verify) board CLI surfaces.
+
 Configuration (env vars):
   OB_AGENT   — required; identity forwarded to every board CLI call.
-  BOARD_BIN  — path to the board CLI (default: <this-file>/../../bin/board.sh).
+  BOARD_BIN  — path to the board CLI (default: /home/liaix/pjs/openboard/bin/board).
   OB_HOME    — passed through to the CLI (optional override).
   OB_BOARD   — passed through to the CLI (optional override).
 """
@@ -25,12 +28,14 @@ from typing import Any
 # Constants
 # ---------------------------------------------------------------------------
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "openboard-mcp"
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_DEFAULT_BOARD_BIN = os.path.join(_THIS_DIR, "..", "bin", "board.sh")
+# Canonical shared entrypoint; override with BOARD_BIN. Falls back to the
+# worktree-local board.sh if the canonical wrapper is absent.
+_DEFAULT_BOARD_BIN = "/home/liaix/pjs/openboard/bin/board"
 
 # ---------------------------------------------------------------------------
 # CLI helpers
@@ -278,6 +283,154 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["result_id", "score", "verdict"],
         },
     },
+    # ---------------------------- Tier-2 tools ----------------------------
+    {
+        "name": "board_task_new",
+        "description": (
+            "Create a new immutable task spec file under tasks/. "
+            "Returns the task id and path as JSON. Auto-assigns TASK-NNN if no id given."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short task title.",
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["code", "research", "build", "analysis", "other"],
+                    "description": "Task type.",
+                },
+                "verifier": {
+                    "type": "string",
+                    "description": "Verifier reference: verifiers/<id>.sh | checklist | llm-judge | none.",
+                },
+                "acceptance": {
+                    "type": "string",
+                    "description": "Acceptance criteria text. Passed to CLI via stdin (--acceptance -).",
+                },
+                "id": {
+                    "type": "string",
+                    "description": "Optional explicit task id, e.g. TASK-007-foo.",
+                },
+            },
+            "required": ["title", "type"],
+        },
+    },
+    {
+        "name": "board_task_list",
+        "description": (
+            "List tasks with computed status (open/claimed/done/closed), "
+            "folded from the append-only message log."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["open", "claimed", "done", "closed"],
+                    "description": "Optional filter by computed status.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "board_task_show",
+        "description": (
+            "Show a task's spec plus its folded thread "
+            "(claims/results/reviews/decisions). Fails (exit 4) if the task does not exist."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Task id, e.g. TASK-001-foo.",
+                },
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "board_task_claim",
+        "description": (
+            "Claim an existing task. Validates the task exists (exit 4 if not), "
+            "then posts a claim (conflict exit 5 if another agent holds an open claim)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Task id to claim, e.g. TASK-001-foo.",
+                },
+                "why": {
+                    "type": "string",
+                    "description": "Optional reason for claiming.",
+                },
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "board_task_close",
+        "description": (
+            "Close a task by posting a decision-type message referencing it "
+            "(creator/integrator). Fails (exit 4) if the task does not exist."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Task id to close.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional close reason. Passed to CLI via stdin (--reason -).",
+                },
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "board_digest",
+        "description": (
+            "Render a deterministic rolling summary: agents online, open/claimed tasks, "
+            "recent results, active claims, recent decisions. "
+            "Set write=true to also save board/digest.md."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "write": {
+                    "type": "boolean",
+                    "description": "If true, also write board/digest.md (atomic). Default false.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "board_verify",
+        "description": (
+            "Run the task's verifier (verifiers/<id>.sh) and report pass/fail with captured "
+            "output. Does NOT post — attach the output to a result yourself. "
+            "exit 4 if task missing, exit 2 if no verifier defined."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Task id to verify, e.g. TASK-001-foo.",
+                },
+            },
+            "required": ["task"],
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -375,7 +528,71 @@ def handle_board_review(args: dict[str, Any]) -> dict[str, Any]:
     return _board_result(stdout, stderr, rc)
 
 
+# ------------------------------ Tier-2 handlers ------------------------------
+
+def handle_board_task_new(args: dict[str, Any]) -> dict[str, Any]:
+    cmd = ["task", "new",
+           "--title", args["title"],
+           "--type", args["type"],
+           "--json"]
+    if "verifier" in args:
+        cmd += ["--verifier", args["verifier"]]
+    if "id" in args:
+        cmd += ["--id", args["id"]]
+    stdin_data = None
+    if "acceptance" in args:
+        cmd += ["--acceptance", "-"]
+        stdin_data = args["acceptance"]
+    stdout, stderr, rc = _run_board(*cmd, stdin_data=stdin_data)
+    return _board_result(stdout, stderr, rc)
+
+
+def handle_board_task_list(args: dict[str, Any]) -> dict[str, Any]:
+    cmd = ["task", "list", "--json"]
+    if "status" in args:
+        cmd += ["--status", args["status"]]
+    stdout, stderr, rc = _run_board(*cmd)
+    return _board_result(stdout, stderr, rc)
+
+
+def handle_board_task_show(args: dict[str, Any]) -> dict[str, Any]:
+    stdout, stderr, rc = _run_board("task", "show", args["id"], "--json")
+    return _board_result(stdout, stderr, rc)
+
+
+def handle_board_task_claim(args: dict[str, Any]) -> dict[str, Any]:
+    cmd = ["task", "claim", args["id"]]
+    if "why" in args:
+        cmd += ["-m", args["why"]]
+    stdout, stderr, rc = _run_board(*cmd)
+    return _board_result(stdout, stderr, rc)
+
+
+def handle_board_task_close(args: dict[str, Any]) -> dict[str, Any]:
+    cmd = ["task", "close", args["id"]]
+    stdin_data = None
+    if "reason" in args:
+        cmd += ["--reason", "-"]
+        stdin_data = args["reason"]
+    stdout, stderr, rc = _run_board(*cmd, stdin_data=stdin_data)
+    return _board_result(stdout, stderr, rc)
+
+
+def handle_board_digest(args: dict[str, Any]) -> dict[str, Any]:
+    cmd = ["digest", "--json"]
+    if args.get("write"):
+        cmd += ["--write"]
+    stdout, stderr, rc = _run_board(*cmd)
+    return _board_result(stdout, stderr, rc)
+
+
+def handle_board_verify(args: dict[str, Any]) -> dict[str, Any]:
+    stdout, stderr, rc = _run_board("verify", "--task", args["task"], "--json")
+    return _board_result(stdout, stderr, rc)
+
+
 HANDLERS: dict[str, Any] = {
+    # Tier-1
     "board_register": handle_board_register,
     "board_who": handle_board_who,
     "board_post": handle_board_post,
@@ -384,6 +601,14 @@ HANDLERS: dict[str, Any] = {
     "board_claim": handle_board_claim,
     "board_result": handle_board_result,
     "board_review": handle_board_review,
+    # Tier-2
+    "board_task_new": handle_board_task_new,
+    "board_task_list": handle_board_task_list,
+    "board_task_show": handle_board_task_show,
+    "board_task_claim": handle_board_task_claim,
+    "board_task_close": handle_board_task_close,
+    "board_digest": handle_board_digest,
+    "board_verify": handle_board_verify,
 }
 
 # ---------------------------------------------------------------------------

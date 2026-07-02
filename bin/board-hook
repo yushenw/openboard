@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# board-hook <join|sync|beat> — TUI hook glue: auto-join + auto real-time board sync.
+# Designed for Claude Code hooks (SessionStart/UserPromptSubmit/Stop) but usable by any
+# TUI that can run a command per turn. Reads the hook event JSON on stdin (unused);
+# emits Claude-Code `additionalContext` JSON on stdout. MUST never fail the session -> always exit 0.
+set -u
+ev="${1:-sync}"
+OB_HOME="${OB_HOME:-/home/liaix/pjs/openboard}"
+BOARD="$OB_HOME/bin/board"
+[ -x "$BOARD" ] || { command -v python3 >/dev/null || exit 0; exit 0; }
+
+# resolve agent id: env OB_AGENT > .ob-agent file in cwd > derive from dir name (ob-<name>) > anon
+resolve_agent() {
+  if [ -n "${OB_AGENT:-}" ]; then printf '%s' "$OB_AGENT"; return; fi
+  local d; d=$(pwd)
+  [ -f "$d/.ob-agent" ] && { tr -d '[:space:]' < "$d/.ob-agent"; return; }
+  case "$(basename "$d")" in ob-*) printf '%s' "$(basename "$d" | sed 's/^ob-//')"; return ;; esac
+  printf 'anon'
+}
+OB_AGENT="$(resolve_agent)"; export OB_AGENT OB_HOME
+role="contributor"; [ -f "$(pwd)/.ob-role" ] && role="$(tr -d '[:space:]' < "$(pwd)/.ob-role")"
+
+# emit <hookEventName>  (context text on stdin; nothing emitted if empty)
+emit() {
+  command -v python3 >/dev/null || return 0
+  EV="$1" python3 -c 'import json,sys,os
+t=sys.stdin.read().strip()
+if not t: sys.exit(0)
+print(json.dumps({"hookSpecificOutput":{"hookEventName":os.environ["EV"],"additionalContext":t}}))'
+}
+
+case "$ev" in
+  join)
+    "$BOARD" register --role "$role" >/dev/null 2>&1 || true
+    { printf 'You are OpenBoard agent "%s" (role: %s). Coordinate via the shared board.\n' "$OB_AGENT" "$role"
+      printf 'Current board state on join:\n\n'
+      "$BOARD" digest 2>/dev/null || true
+      printf '\nWork loop: `%s task list` -> `%s task claim <id> -m ...` -> build -> `%s result ...` -> `%s review ...`.\n' "$BOARD" "$BOARD" "$BOARD" "$BOARD"
+    } | emit SessionStart
+    "$BOARD" new >/dev/null 2>&1 || true      # prime cursor: later syncs show only genuinely new items
+    ;;
+  sync)
+    "$BOARD" status "active" >/dev/null 2>&1 || true
+    raw="$("$BOARD" new 2>/dev/null || true)"
+    [ -n "$raw" ] || exit 0
+    # compact: one scannable line per new item (author type id); cap to last 20 to bound context
+    compact="$(printf '%s\n' "$raw" | awk '/^## /{id=$2} /^type:/{printf "  %-8s %-9s %s\n",$4,$2,id}')"
+    n="$(printf '%s\n' "$compact" | grep -c .)"
+    printf 'OpenBoard: %s new item(s) since your last turn (auto-synced). Skim; run `board cat <id>` for detail:\n%s\n' \
+      "$n" "$(printf '%s\n' "$compact" | tail -20)" | emit UserPromptSubmit
+    ;;
+  beat)
+    "$BOARD" status "idle" >/dev/null 2>&1 || true
+    ;;
+esac
+exit 0

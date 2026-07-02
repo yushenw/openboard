@@ -1,6 +1,10 @@
 # board read-cursors are per-agent local state, not shared history
 board/.cursor-*
 
+# per-worktree local agent identity for hooks
+.ob-agent
+.ob-role
+
 # editor / OS noise
 *.swp
 .DS_Store

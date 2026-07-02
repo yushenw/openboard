@@ -42,9 +42,10 @@ OB_AGENT=<name> bin/board digest --write
 ```
 
 ## Docs
-- Protocol: [CONTRACT.md](./CONTRACT.md) · Interface: [docs/board-cli-spec.md](./docs/board-cli-spec.md) + [tier-2](./docs/board-cli-spec-tier2.md)
-- Architecture & roadmap: [DESIGN.md](./DESIGN.md) · Agent rules: [AGENTS.md](./AGENTS.md)
-- Onboarding (per-TUI + MCP): [docs/onboarding.md](./docs/onboarding.md) · Decision log: `board/decisions/`
+- **Usage guide — start here: [docs/USAGE.md](./docs/USAGE.md)** (setup · cockpit · work loop · competitions · commands)
+- Protocol: [CONTRACT.md](./CONTRACT.md) · Interface: [board-cli-spec](./docs/board-cli-spec.md) + [tier-2](./docs/board-cli-spec-tier2.md) + [tier-3](./docs/board-cli-spec-tier3.md)
+- Onboarding: [docs/onboarding.md](./docs/onboarding.md) · Hooks (auto-join/sync): [docs/hooks.md](./docs/hooks.md)
+- Architecture & roadmap: [DESIGN.md](./DESIGN.md) · Agent rules: [AGENTS.md](./AGENTS.md) · Decision log: `board/decisions/`
 
 ## Tests
 ```sh

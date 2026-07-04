@@ -1,3 +1,9 @@
 #!/usr/bin/env bash
-# Canonical `board` entrypoint — thin wrapper around board.sh.
-exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/board.sh" "$@"
+# Canonical `board` entrypoint — thin wrapper around board.sh. Resolves symlink chains
+# (install.sh links from <prefix>/bin) so board.sh is found in the real checkout.
+src=${BASH_SOURCE[0]}
+while [ -h "$src" ]; do
+  d=$(cd -P "$(dirname "$src")" && pwd); src=$(readlink "$src")
+  case "$src" in /*) ;; *) src="$d/$src" ;; esac
+done
+exec "$(cd -P "$(dirname "$src")" && pwd)/board.sh" "$@"

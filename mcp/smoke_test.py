@@ -17,7 +17,7 @@ Live tests (auto-enabled when the board CLI is present):
 Controls:
   OPENBOARD_NO_LIVE=1  force schema-only (skip live even if CLI exists).
   OPENBOARD_LIVE=1     force live (error out if CLI missing).
-  BOARD_BIN            path to the board CLI (default /home/liaix/pjs/openboard/bin/board).
+  BOARD_BIN            path to the board CLI (default: <this repo>/bin/board, script-relative).
 
 Usage:
   python3 mcp/smoke_test.py                       # schema + live (auto)
@@ -35,7 +35,10 @@ import tempfile
 from typing import Any
 
 SERVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "server.py")
-BOARD_BIN = os.environ.get("BOARD_BIN", "/home/liaix/pjs/openboard/bin/board")
+BOARD_BIN = os.environ.get(
+    "BOARD_BIN",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "board"),
+)
 
 _FORCE_LIVE = os.environ.get("OPENBOARD_LIVE") == "1"
 _NO_LIVE = os.environ.get("OPENBOARD_NO_LIVE") == "1"
@@ -473,7 +476,7 @@ def main() -> None:
         if not os.path.exists(BOARD_BIN):
             print(f"OPENBOARD_LIVE forced but board CLI not found: {BOARD_BIN}", file=sys.stderr)
             sys.exit(2)
-        # Isolated board so the shared /home/liaix/pjs/openboard/board is untouched.
+        # Isolated board so the real shared board is untouched.
         tmp_home = tempfile.mkdtemp(prefix="ob-mcp-smoke-")
         os.makedirs(os.path.join(tmp_home, "board", "messages"), exist_ok=True)
         os.makedirs(os.path.join(tmp_home, "board", "agents"), exist_ok=True)

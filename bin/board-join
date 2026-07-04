@@ -4,12 +4,19 @@
 # shared-board redirect, register on the board, then run `board doctor` — a join only counts
 # when doctor is green (no more silent writes into the void).
 set -u
-# Resolve OB_HOME from env > `.openboard/` marker > this script's location (see bin/ob-common.sh).
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ob-common.sh"
-ob_resolve_home "${BASH_SOURCE[0]}" || {
+# Resolve our REAL location first (install.sh symlinks from <prefix>/bin), then OB_HOME
+# from env > `.openboard/` marker > script location (see bin/ob-common.sh).
+_src=${BASH_SOURCE[0]}
+while [ -h "$_src" ]; do
+  _d=$(cd -P "$(dirname "$_src")" && pwd); _src=$(readlink "$_src")
+  case "$_src" in /*) ;; *) _src="$_d/$_src" ;; esac
+done
+OB_BIN_DIR=$(cd -P "$(dirname "$_src")" && pwd)
+. "$OB_BIN_DIR/ob-common.sh"
+ob_resolve_home "$_src" || {
   echo "board-join: cannot locate OpenBoard root (set OB_HOME, or \`board init\` a directory first)" >&2; exit 2; }
 # CLI lives next to THIS script (the install), not necessarily under OB_HOME.
-BOARD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/board"
+BOARD="$OB_BIN_DIR/board"
 
 agent="" role="" wt=auto
 while [ $# -gt 0 ]; do

@@ -5,13 +5,20 @@
 # emits Claude-Code `additionalContext` JSON on stdout. MUST never fail the session -> always exit 0.
 set -u
 ev="${1:-sync}"
-# Resolve OB_HOME from env > `.openboard/` marker (a worktree's `.openboard/local` redirects to the
-# SHARED board) > this script's location. Replaces the old hard-coded path. See bin/ob-common.sh.
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ob-common.sh"
-ob_resolve_home "${BASH_SOURCE[0]}" || exit 0    # hooks MUST never fail the session
+# Resolve our REAL location first (install.sh symlinks from <prefix>/bin), then OB_HOME from
+# env > `.openboard/` marker (a worktree's `.openboard/local` redirects to the SHARED board) >
+# script location. See bin/ob-common.sh.
+_src=${BASH_SOURCE[0]}
+while [ -h "$_src" ]; do
+  _d=$(cd -P "$(dirname "$_src")" && pwd); _src=$(readlink "$_src")
+  case "$_src" in /*) ;; *) _src="$_d/$_src" ;; esac
+done
+OB_BIN_DIR=$(cd -P "$(dirname "$_src")" && pwd)
+. "$OB_BIN_DIR/ob-common.sh"
+ob_resolve_home "$_src" || exit 0    # hooks MUST never fail the session
 # CLI lives next to THIS script (the install), not necessarily under OB_HOME (an init'd
 # project may have no vendored bin/).
-BOARD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/board"
+BOARD="$OB_BIN_DIR/board"
 [ -x "$BOARD" ] || { command -v python3 >/dev/null || exit 0; exit 0; }
 
 # resolve agent id: env OB_AGENT > .ob-agent file in cwd > derive from dir name (ob-<name>) > anon

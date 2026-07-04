@@ -3,8 +3,7 @@
 # Sourced by board.sh / board-hook / board-join. Defines FUNCTIONS ONLY: no side effects at
 # source time and no `set` changes, so it is safe under both `set -euo pipefail` and `set -u`.
 #
-# Root resolution (function ob_resolve_home) replaces the old hard-coded
-#   OB_HOME="${OB_HOME:-/home/liaix/pjs/openboard}"
+# Root resolution (function ob_resolve_home) replaces the old hard-coded OB_HOME default
 # so the toolkit works from any checkout / any path. Precedence:
 #   1. $OB_HOME env            — explicit override (tests, hooks, CI)
 #   2. `.openboard/` marker    — walk up from CWD like git finds `.git`;

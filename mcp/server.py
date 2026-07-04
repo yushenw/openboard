@@ -11,7 +11,7 @@ Tier-2 (task new/list/show/claim/close, digest, verify) board CLI surfaces.
 
 Configuration (env vars):
   OB_AGENT   — required; identity forwarded to every board CLI call.
-  BOARD_BIN  — path to the board CLI (default: /home/liaix/pjs/openboard/bin/board).
+  BOARD_BIN  — path to the board CLI (default: <this repo>/bin/board, script-relative).
   OB_HOME    — passed through to the CLI (optional override).
   OB_BOARD   — passed through to the CLI (optional override).
 """
@@ -33,9 +33,10 @@ PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "openboard-mcp"
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-# Canonical shared entrypoint; override with BOARD_BIN. Falls back to the
-# worktree-local board.sh if the canonical wrapper is absent.
-_DEFAULT_BOARD_BIN = "/home/liaix/pjs/openboard/bin/board"
+# Canonical entrypoint: the board CLI in THIS checkout (mcp/ sits beside bin/).
+# Override with BOARD_BIN. The CLI resolves the board root itself (env OB_HOME >
+# `.openboard/` marker > its own location), so no absolute path is baked in.
+_DEFAULT_BOARD_BIN = os.path.join(os.path.dirname(_THIS_DIR), "bin", "board")
 
 # ---------------------------------------------------------------------------
 # CLI helpers

@@ -37,8 +37,16 @@ export LC_ALL=C   # deterministic byte-order string comparison (matches board.sh
 # ---------------------------------------------------------------------------
 # Config / defaults
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OB_HOME="${OB_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+# Resolve our REAL location (install.sh symlinks from <prefix>/bin), then OB_HOME from
+# env > `.openboard/` marker > script location (see bin/ob-common.sh).
+_src=${BASH_SOURCE[0]}
+while [ -h "$_src" ]; do
+  _d=$(cd -P "$(dirname "$_src")" && pwd); _src=$(readlink "$_src")
+  case "$_src" in /*) ;; *) _src="$_d/$_src" ;; esac
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+. "$SCRIPT_DIR/ob-common.sh"
+ob_resolve_home "$_src" || { echo "board-watch: cannot locate OpenBoard root (set OB_HOME)" >&2; exit 2; }
 OB_BOARD="${OB_BOARD:-$OB_HOME/board}"
 OB_STATE="${OB_STATE:-/tmp/board-watch-state}"
 

@@ -3,8 +3,17 @@
 # Composes the read-only board CLI commands into a refreshing panel.
 # Usage: board-view [--once | --interval N] [-n <activity-lines>]
 set -u
-OB_HOME="${OB_HOME:-/home/liaix/pjs/openboard}"
-BOARD_BIN="${BOARD_BIN:-$OB_HOME/bin/board}"
+# Resolve our REAL location first (install.sh symlinks from <prefix>/bin), then OB_HOME
+# from env > `.openboard/` marker > script location (see bin/ob-common.sh).
+_src=${BASH_SOURCE[0]}
+while [ -h "$_src" ]; do
+  _d=$(cd -P "$(dirname "$_src")" && pwd); _src=$(readlink "$_src")
+  case "$_src" in /*) ;; *) _src="$_d/$_src" ;; esac
+done
+OB_BIN_DIR=$(cd -P "$(dirname "$_src")" && pwd)
+. "$OB_BIN_DIR/ob-common.sh"
+ob_resolve_home "$_src" || { echo "board-view: cannot locate OpenBoard root (set OB_HOME)" >&2; exit 2; }
+BOARD_BIN="${BOARD_BIN:-$OB_BIN_DIR/board}"
 N_ACTIVITY=12
 INTERVAL=0                     # 0 = render once and exit
 

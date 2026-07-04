@@ -161,6 +161,41 @@ else
   bad "9 --json valid" "post=$jp who=$jw read=$jr new=$jn"
 fi
 
+# --- 10: cat prints one message in full (human + valid JSON); missing id exits 4
+reset_board
+cid=$(OB_AGENT=ivy "$BOARD" post propose catme -m "cat target body" --json 2>/dev/null \
+      | jpy 'import sys,json; print(json.load(sys.stdin)["id"])')
+h=$("$BOARD" cat "$cid" 2>/dev/null)
+j=$("$BOARD" cat "$cid" --json 2>/dev/null)
+"$BOARD" cat no-such-id >/dev/null 2>&1; rc4=$?
+if printf '%s' "$h" | grep -q "cat target body" && json_valid "$j" && [ "$rc4" -eq 4 ]; then
+  ok "10 cat shows full message; unknown id exits 4"
+else
+  bad "10 cat" "rc4=$rc4 h=$h"
+fi
+
+# --- 11: search matches body case-insensitively; no match exits 0 with notice
+OB_AGENT=ivy "$BOARD" post propose s1 -m "UNIQUE-needle here" >/dev/null 2>&1
+OB_AGENT=ivy "$BOARD" post propose s2 -m "nothing relevant" >/dev/null 2>&1
+sh=$("$BOARD" search "unique-NEEDLE" 2>/dev/null)
+sj=$("$BOARD" search "unique-needle" --json 2>/dev/null)
+sn=$("$BOARD" search "zzz-no-match-zzz" 2>/dev/null); snrc=$?
+if printf '%s' "$sh" | grep -q "s1" && json_valid "$sj" \
+   && printf '%s' "$sj" | jpy 'import sys,json; d=json.load(sys.stdin); assert d["total"]==1' \
+   && [ "$snrc" -eq 0 ] && printf '%s' "$sn" | grep -q "no matches"; then
+  ok "11 search case-insensitive ERE + --json + clean no-match"
+else
+  bad "11 search" "rc=$snrc sh=$sh sj=$sj"
+fi
+
+# --- 12: version works, even outside any board root
+v=$(cd / && "$BOARD" version 2>/dev/null)
+if printf '%s' "$v" | grep -qE '^openboard [0-9]+\.[0-9]+\.[0-9]+'; then
+  ok "12 version prints semver, works outside a root"
+else
+  bad "12 version" "$v"
+fi
+
 # ---------------------------------------------------------------------------
 echo
 echo "-----------------------------------------"

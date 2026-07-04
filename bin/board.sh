@@ -11,13 +11,15 @@ export LC_ALL=C   # deterministic byte-order sorting + slugify ranges
 # Environment / layout
 # ---------------------------------------------------------------------------
 # Resolve OB_HOME from env > `.openboard/` marker > this script's location (see bin/ob-common.sh),
-# replacing the old hard-coded path so the toolkit runs from any checkout. `board init` skips this.
+# replacing the old hard-coded path so the toolkit runs from any checkout. Commands that must work
+# OUTSIDE any root (init/help/version) skip resolution.
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ob-common.sh"
-if [ "${1:-}" != "init" ]; then
-  ob_resolve_home "${BASH_SOURCE[0]}" || {
-    printf 'board: cannot locate OpenBoard root (set OB_HOME, or run `board init` here)\n' >&2; exit 2; }
-fi
-OB_HOME="${OB_HOME:-$(ob_script_home "${BASH_SOURCE[0]}")}"   # init: fall back to install dir
+case "${1:-help}" in
+  init|help|-h|--help|version|--version) ;;
+  *) ob_resolve_home "${BASH_SOURCE[0]}" || {
+       printf 'board: cannot locate OpenBoard root (set OB_HOME, or run `board init` here)\n' >&2; exit 2; } ;;
+esac
+OB_HOME="${OB_HOME:-$(ob_script_home "${BASH_SOURCE[0]}")}"   # init/help/version: fall back to install dir
 OB_BOARD="${OB_BOARD:-$OB_HOME/board}"
 OB_AGENT="${OB_AGENT-}"                 # NO default: empty means "missing identity"
 
@@ -929,6 +931,9 @@ usage: OB_AGENT=<name> board.sh <command> [args]
   init [<dir>] [--json]        make <dir> (default CWD) an OpenBoard root
   brief [--hook|--paste|--json] [--role <r>]   onboarding text — single source for hook/paste/MCP
   doctor [--json]              cold-start self-check (home/identity/roundtrip/transport/deps/hooks)
+  cat <id> [--json]            print one message in full
+  search <pattern> [-n N] [--json]   case-insensitive ERE over all messages (last N hits, default 20)
+  version                      print the toolkit version
   whoami
   register --role <role> [--status <text>]
   who [--json]
@@ -1144,6 +1149,57 @@ cmd_doctor() {
 }
 
 # ---------------------------------------------------------------------------
+# cat / search — read-only message inspection (no identity required).
+# `board cat <id>` is what the per-turn hook sync tells agents to run for detail.
+# ---------------------------------------------------------------------------
+cmd_cat() {
+  local id="" json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in --json) json=1; shift ;; -*) die 2 "cat: unknown flag '$1'" ;; *) id=$1; shift ;; esac
+  done
+  [ -n "$id" ] || die 2 "cat: message id required"
+  local f="$LOG/${id%.md}.md"
+  [ -f "$f" ] || die 4 "cat: no such message '$id'"
+  parse_msg "$f"
+  if [ $json -eq 1 ]; then msg_json; printf '\n'; else msg_human; fi
+}
+
+cmd_search() {
+  local pat="" json=0 n=20
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) json=1; shift ;;
+      -n)     n=${2:?}; shift 2 ;;
+      -*)     die 2 "search: unknown flag '$1'" ;;
+      *)      pat=$1; shift ;;
+    esac
+  done
+  [ -n "$pat" ] || die 2 "search: pattern required (case-insensitive ERE over id+frontmatter+body)"
+  local f hits=()
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    grep -qiE -- "$pat" "$f" 2>/dev/null && hits+=("$f")
+  done < <(all_messages)
+  local total=${#hits[@]} start=0
+  [ "$total" -gt "$n" ] && start=$((total - n))
+  if [ $json -eq 1 ]; then
+    printf '{"pattern":"%s","total":%d,"shown":%d,"hits":[' "$(json_escape "$pat")" "$total" $((total - start))
+    local i first=1
+    for (( i=start; i<total; i++ )); do
+      parse_msg "${hits[$i]}"
+      [ $first -eq 1 ] || printf ','
+      msg_json; first=0
+    done
+    printf ']}\n'
+  else
+    [ "$total" -eq 0 ] && { printf 'no matches for: %s\n' "$pat"; return 0; }
+    [ "$start" -gt 0 ] && printf '(%d matches, showing last %d — raise with -n)\n\n' "$total" "$n"
+    local i
+    for (( i=start; i<total; i++ )); do parse_msg "${hits[$i]}"; msg_human; done
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 cmd="${1:-help}"; shift || true
@@ -1151,6 +1207,10 @@ case "$cmd" in
   init)     cmd_init "$@" ;;
   brief)    cmd_brief "$@" ;;
   doctor)   cmd_doctor "$@" ;;
+  cat)      cmd_cat "$@" ;;
+  search)   cmd_search "$@" ;;
+  version|--version)
+    printf 'openboard %s\n' "$(cat "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/VERSION" 2>/dev/null || printf 'unknown')" ;;
   whoami)   cmd_whoami "$@" ;;
   register) cmd_register "$@" ;;
   who)      cmd_who "$@" ;;

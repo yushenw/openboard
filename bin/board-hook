@@ -5,8 +5,13 @@
 # emits Claude-Code `additionalContext` JSON on stdout. MUST never fail the session -> always exit 0.
 set -u
 ev="${1:-sync}"
-OB_HOME="${OB_HOME:-/home/liaix/pjs/openboard}"
-BOARD="$OB_HOME/bin/board"
+# Resolve OB_HOME from env > `.openboard/` marker (a worktree's `.openboard/local` redirects to the
+# SHARED board) > this script's location. Replaces the old hard-coded path. See bin/ob-common.sh.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ob-common.sh"
+ob_resolve_home "${BASH_SOURCE[0]}" || exit 0    # hooks MUST never fail the session
+# CLI lives next to THIS script (the install), not necessarily under OB_HOME (an init'd
+# project may have no vendored bin/).
+BOARD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/board"
 [ -x "$BOARD" ] || { command -v python3 >/dev/null || exit 0; exit 0; }
 
 # resolve agent id: env OB_AGENT > .ob-agent file in cwd > derive from dir name (ob-<name>) > anon
@@ -32,11 +37,8 @@ print(json.dumps({"hookSpecificOutput":{"hookEventName":os.environ["EV"],"additi
 case "$ev" in
   join)
     "$BOARD" register --role "$role" >/dev/null 2>&1 || true
-    { printf 'You are OpenBoard agent "%s" (role: %s). Coordinate via the shared board.\n' "$OB_AGENT" "$role"
-      printf 'Current board state on join:\n\n'
-      "$BOARD" digest 2>/dev/null || true
-      printf '\nWork loop: `%s task list` -> `%s task claim <id> -m ...` -> build -> `%s result ...` -> `%s review ...`.\n' "$BOARD" "$BOARD" "$BOARD" "$BOARD"
-    } | emit SessionStart
+    # onboarding text comes from `board brief` — the single source (decision 0012 mech 2)
+    "$BOARD" brief --hook --role "$role" 2>/dev/null | emit SessionStart
     "$BOARD" new >/dev/null 2>&1 || true      # prime cursor: later syncs show only genuinely new items
     ;;
   sync)

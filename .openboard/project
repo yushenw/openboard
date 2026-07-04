@@ -1,0 +1,5 @@
+# OpenBoard project config — tracked, self-describing. Sourced by the CLI (bin/ob-common.sh).
+# KEY=VALUE only (this file is sourced as shell). Per-checkout overrides go in `.openboard/local`.
+OB_SCHEMA=1
+OB_BOARD_TRANSPORT=local
+OB_TRUST_LEVEL=0

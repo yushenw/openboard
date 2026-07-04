@@ -10,7 +10,14 @@ export LC_ALL=C   # deterministic byte-order sorting + slugify ranges
 # ---------------------------------------------------------------------------
 # Environment / layout
 # ---------------------------------------------------------------------------
-OB_HOME="${OB_HOME:-/home/liaix/pjs/openboard}"
+# Resolve OB_HOME from env > `.openboard/` marker > this script's location (see bin/ob-common.sh),
+# replacing the old hard-coded path so the toolkit runs from any checkout. `board init` skips this.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ob-common.sh"
+if [ "${1:-}" != "init" ]; then
+  ob_resolve_home "${BASH_SOURCE[0]}" || {
+    printf 'board: cannot locate OpenBoard root (set OB_HOME, or run `board init` here)\n' >&2; exit 2; }
+fi
+OB_HOME="${OB_HOME:-$(ob_script_home "${BASH_SOURCE[0]}")}"   # init: fall back to install dir
 OB_BOARD="${OB_BOARD:-$OB_HOME/board}"
 OB_AGENT="${OB_AGENT-}"                 # NO default: empty means "missing identity"
 
@@ -919,6 +926,9 @@ cmd_sync() {
 usage() {
   cat >&2 <<'EOF'
 usage: OB_AGENT=<name> board.sh <command> [args]
+  init [<dir>] [--json]        make <dir> (default CWD) an OpenBoard root
+  brief [--hook|--paste|--json] [--role <r>]   onboarding text — single source for hook/paste/MCP
+  doctor [--json]              cold-start self-check (home/identity/roundtrip/transport/deps/hooks)
   whoami
   register --role <role> [--status <text>]
   who [--json]
@@ -945,10 +955,202 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# init — make a directory an OpenBoard root (like `git init`): marker + config + board dirs.
+# Idempotent: only creates what is missing; never clobbers. Does NOT install the CLI tooling.
+# ---------------------------------------------------------------------------
+cmd_init() {
+  local target="" json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in --json) json=1; shift ;; -*) die 2 "init: unknown flag '$1'" ;; *) target=$1; shift ;; esac
+  done
+  target="${target:-$PWD}"
+  target=$(cd "$target" 2>/dev/null && pwd) || die 4 "init: no such directory '$target'"
+  local made=() kept=()
+  # marker + tracked, self-describing project config
+  mkdir -p "$target/.openboard"
+  if [ -f "$target/.openboard/project" ]; then kept+=(".openboard/project")
+  else
+    printf 'OB_SCHEMA=1\nOB_BOARD_TRANSPORT=local\nOB_TRUST_LEVEL=0\n' > "$target/.openboard/project"
+    made+=(".openboard/project")
+  fi
+  # board data skeleton (+ sibling task/verifier/artifact dirs)
+  local d
+  for d in board/agents board/messages board/decisions board/inbox tasks verifiers artifacts; do
+    if [ -d "$target/$d" ]; then kept+=("$d/")
+    else mkdir -p "$target/$d"; : > "$target/$d/.gitkeep"; made+=("$d/"); fi
+  done
+  if [ -f "$target/board/digest.md" ]; then kept+=("board/digest.md")
+  else printf '# OpenBoard digest\n\n(empty — run `board digest --write`)\n' > "$target/board/digest.md"; made+=("board/digest.md"); fi
+  if [ $json -eq 1 ]; then
+    local m j="" first=1
+    printf '{"root":"%s","created":[' "$(json_escape "$target")"
+    for m in ${made+"${made[@]}"}; do [ $first -eq 1 ] || printf ','; printf '"%s"' "$(json_escape "$m")"; first=0; done
+    printf ']}\n'
+    return 0
+  fi
+  printf 'OpenBoard root: %s\n' "$target"
+  if [ ${#made[@]} -gt 0 ]; then printf 'created:\n'; for d in "${made[@]}"; do printf '  + %s\n' "$d"; done; fi
+  if [ ${#kept[@]} -gt 0 ]; then printf 'already present (kept): %d item(s)\n' "${#kept[@]}"; fi
+  cat <<EOF
+
+next:
+  cd $target
+  OB_AGENT=<name> $(basename "$0") register --role <role>
+  OB_AGENT=<name> $(basename "$0") task list
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# brief — the SINGLE onboarding renderer (decision 0012 mech 2). Every channel calls this
+# so the content can never drift: board-hook join (--hook), fresh-TUI paste block (--paste),
+# MCP onboarding resource (--json). SELF_BIN = the canonical CLI path to print in the text.
+# ---------------------------------------------------------------------------
+SELF_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/board"
+
+brief_role() {   # resolved role: explicit > .ob-role in cwd > registered agent file > contributor
+  local role=$1 r
+  [ -n "$role" ] && { printf '%s' "$role"; return; }
+  [ -f "$PWD/.ob-role" ] && { tr -d '[:space:]' < "$PWD/.ob-role"; return; }
+  if [ -n "${OB_AGENT:-}" ] && [ -f "$AGENTS/$OB_AGENT.md" ]; then
+    r=$(sed -n 's/^role: //p' "$AGENTS/$OB_AGENT.md" | head -1)
+    [ -n "$r" ] && { printf '%s' "$r"; return; }
+  fi
+  printf 'contributor'
+}
+
+brief_hook_text() {   # $1=agent $2=role — injected as context on session start
+  printf 'You are OpenBoard agent "%s" (role: %s). Coordinate via the shared board.\n' "$1" "$2"
+  printf 'Current board state on join:\n\n'
+  cmd_digest 2>/dev/null || true
+  printf '\nWork loop: `%s task list` -> `%s task claim <id> -m ...` -> build -> `%s result ...` -> `%s review ...`.\n' \
+    "$SELF_BIN" "$SELF_BIN" "$SELF_BIN" "$SELF_BIN"
+}
+
+brief_paste_text() {  # $1=agent $2=role — drop into a fresh TUI; paths come from config, never hand-written
+  local agent=$1 role=$2 wt
+  wt="$(dirname "$OB_HOME")/ob-$agent"
+  cat <<EOF
+You are agent $agent on OpenBoard. Board root: $OB_HOME.
+Your code workspace is the git worktree $wt (branch agent/$agent) — build ONLY there
+(provision it once with: $OB_HOME/bin/board-join $agent $role).
+Communicate via the shared board using the stable CLI:
+  export OB_HOME=$OB_HOME OB_AGENT=$agent
+  $SELF_BIN register --role "$role"
+  $SELF_BIN new           # read unread
+  $SELF_BIN task list     # task board (computed status)
+Read CONTRACT.md + docs/board-cli-spec*.md + board/decisions/ first.
+Work loop: CLAIM (task claim <id> -m) -> BUILD in your worktree -> SHARE
+(result --task <id> --branch agent/$agent --sha <sha> --evidence -) -> REVIEW others.
+Never touch main or other worktrees. The integrator merges via the gate.
+EOF
+}
+
+cmd_brief() {
+  local mode=hook role="" agent t
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --hook)  mode=hook; shift ;;
+      --paste) mode=paste; shift ;;
+      --json)  mode=json; shift ;;
+      --role)  role=${2:?}; shift 2 ;;
+      *) die 2 "brief: unknown arg '$1' (want --hook|--paste|--json [--role <r>])" ;;
+    esac
+  done
+  role=$(brief_role "$role")
+  agent="${OB_AGENT:-<NAME>}"
+  case "$mode" in
+    hook)  brief_hook_text "$agent" "$role" ;;
+    paste) brief_paste_text "$agent" "$role" ;;
+    json)
+      t=$(brief_hook_text "$agent" "$role")
+      printf '{"agent":"%s","role":"%s","home":"%s","brief":"%s"}\n' \
+        "$(json_escape "$agent")" "$(json_escape "$role")" "$(json_escape "$OB_HOME")" "$(json_escape "$t")"
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# doctor — cold-start self-check (decision 0012 mech 4): turn "silently wrote into the void"
+# into a red line + a fix hint. board-join runs this last; a join counts only when it is green.
+# Probes must NEVER pollute the message stream: roundtrip uses a throwaway board/.probe-* file.
+# ---------------------------------------------------------------------------
+cmd_doctor() {
+  local json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in --json) json=1; shift ;; *) die 2 "doctor: unknown arg '$1'" ;; esac
+  done
+  local fails=0 rows=()
+  chk() { rows+=("$1|$2|$3"); [ "$1" = FAIL ] && fails=$((fails+1)) || true; }
+
+  # 1 home resolved + board writable
+  if [ -d "$OB_BOARD" ] && [ -w "$OB_BOARD" ]; then chk ok home "$OB_HOME (board writable)"
+  else chk FAIL home "board dir missing/unwritable: $OB_BOARD — run \`board init\` there"; fi
+
+  # 2 identity present and not anon
+  if [ -n "$OB_AGENT" ] && [ "$OB_AGENT" != anon ]; then chk ok identity "$OB_AGENT"
+  else chk FAIL identity "OB_AGENT unset/anon — export OB_AGENT=<name> or write .ob-agent"; fi
+
+  # 3 write->read roundtrip via a throwaway probe (never a real message)
+  local probe="$OB_BOARD/.probe-$$" out=""
+  if printf 'ping' | atomic_write "$probe" 2>/dev/null; then out=$(cat "$probe" 2>/dev/null || true); fi
+  rm -f "$probe" 2>/dev/null || true
+  if [ "$out" = ping ]; then chk ok roundtrip "write->read ok"
+  else chk FAIL roundtrip "cannot write+read in $OB_BOARD"; fi
+
+  # 4 transport
+  case "$OB_BOARD_TRANSPORT" in
+    local) chk ok transport "local" ;;
+    git)
+      if GIT_TERMINAL_PROMPT=0 timeout 5 git -C "$OB_HOME" ls-remote --exit-code origin >/dev/null 2>&1; then
+        chk ok transport "git (origin reachable)"
+      else chk FAIL transport "git transport: remote 'origin' unreachable from $OB_HOME"; fi ;;
+    *) chk FAIL transport "unknown OB_BOARD_TRANSPORT '$OB_BOARD_TRANSPORT' (want local|git)" ;;
+  esac
+
+  # 5 deps (core = hard requirement; python3 = MCP/JSON tooling only)
+  local missing="" c
+  for c in git awk sed sort; do command -v "$c" >/dev/null 2>&1 || missing="$missing $c"; done
+  if [ -n "$missing" ]; then chk FAIL deps "missing:$missing"
+  elif command -v python3 >/dev/null 2>&1; then chk ok deps "coreutils/git + python3"
+  else chk warn deps "core ok; python3 missing (MCP + JSON validation degraded)"; fi
+
+  # 6 hooks wiring (informational: absent is a valid manual-sync setup)
+  if [ -f "$OB_HOME/.claude/settings.json" ] && grep -q board-hook "$OB_HOME/.claude/settings.json" 2>/dev/null; then
+    chk ok hooks ".claude/settings.json wires board-hook"
+  else chk skip hooks "no hook wiring (run \`board new\` at the top of each turn)"; fi
+
+  local r st rest nm dt
+  if [ $json -eq 1 ]; then
+    printf '{"home":"%s","failures":%d,"checks":[' "$(json_escape "$OB_HOME")" "$fails"
+    local first=1
+    for r in "${rows[@]}"; do
+      st=${r%%|*}; rest=${r#*|}; nm=${rest%%|*}; dt=${rest#*|}
+      [ $first -eq 1 ] || printf ','
+      printf '{"name":"%s","status":"%s","detail":"%s"}' \
+        "$(json_escape "$nm")" "$(json_escape "$st")" "$(json_escape "$dt")"
+      first=0
+    done
+    printf ']}\n'
+  else
+    printf 'board doctor — %s\n' "$OB_HOME"
+    for r in "${rows[@]}"; do
+      st=${r%%|*}; rest=${r#*|}; nm=${rest%%|*}; dt=${rest#*|}
+      printf '  %-4s %-10s %s\n' "$st" "$nm" "$dt"
+    done
+    if [ $fails -eq 0 ]; then printf 'RESULT: ok (%d checks)\n' "${#rows[@]}"
+    else printf 'RESULT: %d FAILURE(S)\n' "$fails"; fi
+  fi
+  [ "$fails" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 cmd="${1:-help}"; shift || true
 case "$cmd" in
+  init)     cmd_init "$@" ;;
+  brief)    cmd_brief "$@" ;;
+  doctor)   cmd_doctor "$@" ;;
   whoami)   cmd_whoami "$@" ;;
   register) cmd_register "$@" ;;
   who)      cmd_who "$@" ;;

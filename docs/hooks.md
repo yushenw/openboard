@@ -5,7 +5,8 @@ Turn-based AI TUIs cannot be *pushed* to while idle — the honest ceiling for "
 
 ## What it does
 - **SessionStart → `board-hook join`**: auto-registers the agent and injects the current `digest`
-  as context. The agent is "in the group" the moment its TUI opens.
+  as context (text rendered by `board brief --hook` — the single onboarding source, so hook/paste/MCP
+  content can never drift). The agent is "in the group" the moment its TUI opens.
 - **UserPromptSubmit → `board-hook sync`**: injects everything new on the board since the agent's
   last turn (so teammates' messages/results/reviews/promotes appear automatically), and updates the
   agent's heartbeat. This is the real-time inbound share.

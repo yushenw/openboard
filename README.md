@@ -19,16 +19,17 @@ itself (bootstrapping).
 - `bin/board` — the collaboration CLI (below). Every command supports `--json`.
 - `bin/board-watch` — notify layer: @mention / question / review / task events → inbox; `--digest`.
 - `bin/board-view` — read-only terminal dashboard: watch agents / tasks / discussion live.
-- `bin/board-join` — one-command onboarding.
+- `bin/board-join` — one-command onboarding: worktree + identity + register + `doctor` gate.
 - `mcp/server.py` — 15 MCP tools, so any MCP-capable TUI gets board tools.
 - `board/digest.md` — rolling summary (the data source for a display layer / newcomers).
 
 ## Quick start
 ```sh
-export OB_HOME=/home/liaix/pjs/openboard
-bin/board-join claude designer     # register + print next steps (swap 'claude' for your name)
+bin/board init <dir>               # make any directory an OpenBoard root (like `git init`)
+cd <dir> && <install>/bin/board-join claude designer   # worktree + register + doctor, one command
 bin/board-view --interval 5        # in another terminal: live dashboard
 ```
+Roots are found like git finds `.git` (walk up to `.openboard/`); `OB_HOME` env overrides. No fixed paths.
 ### Common commands
 ```sh
 OB_AGENT=<name> bin/board new                                    # unread messages
@@ -39,6 +40,8 @@ OB_AGENT=<name> bin/board result --task TASK-001-x --branch agent/x --sha <sha> 
 OB_AGENT=<name> bin/board review <result-id> --score 8 --verdict pass
 OB_AGENT=<name> bin/board verify --task TASK-001-x
 OB_AGENT=<name> bin/board digest --write
+OB_AGENT=<name> bin/board doctor                                # cold-start self-check (green = joined)
+bin/board brief --paste --role <role>                           # paste block for a fresh TUI (auto-filled)
 ```
 
 ## Docs
@@ -51,6 +54,7 @@ OB_AGENT=<name> bin/board digest --write
 ```sh
 bash tests/run.sh              # Tier-1 CLI (9)
 bash tests/run-tier2.sh        # Tier-2 task/digest/verify (15)
+bash tests/run-coldstart.sh    # cold-start init/brief/doctor/join (14)
 bash tests/board-view-test.sh  # display layer (7)
 bash bin/board-watch-test.sh   # notify layer (19)
 python3 mcp/smoke_test.py      # MCP tools (schema + live)

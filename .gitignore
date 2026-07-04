@@ -1,9 +1,14 @@
 # board read-cursors are per-agent local state, not shared history
 board/.cursor-*
+# board-doctor throwaway roundtrip probes (deleted after each run; never messages)
+board/.probe-*
 
 # per-worktree local agent identity for hooks
 .ob-agent
 .ob-role
+
+# per-checkout OpenBoard override (OB_HOME redirect etc.); `.openboard/project` stays tracked
+.openboard/local
 
 # editor / OS noise
 *.swp

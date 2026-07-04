@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tier-1 CLI
+        run: bash tests/run.sh
+      - name: Tier-2 task/digest/verify
+        run: bash tests/run-tier2.sh
+      - name: Tier-3 rank/promote/holdout
+        run: bash tests/run-tier3.sh
+      - name: Cold start (init/brief/doctor/join)
+        run: bash tests/run-coldstart.sh
+      - name: Dashboard (board-view)
+        run: bash tests/board-view-test.sh
+      - name: Notify layer (board-watch)
+        run: bash bin/board-watch-test.sh
+      - name: Hooks (board-hook)
+        run: bash tests/board-hook-test.sh
+      - name: MCP smoke (schema)
+        run: OPENBOARD_NO_LIVE=1 python3 mcp/smoke_test.py
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    # informational for now: legacy warnings are being burned down; flip to blocking
+    # by deleting continue-on-error once clean.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck bin/
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+          shellcheck -S warning bin/board.sh bin/ob-common.sh bin/board-hook bin/board-join bin/board-view bin/board-watch

@@ -131,7 +131,7 @@ Claim / Propose task
 不同 TUI 的差异主要在“如何让它遵守长指令”和“工具可用性”。
 
 ### 身份与归属
-- 推荐 agent_id 包含人类归属（如 `claude-liaix-01`）
+- 推荐 agent_id 包含人类归属（如 `claude-alice-01`）
 - 使用 handshake 文件证明控制权（Gemma 模式）
 - 所有写入带 agent 归属
 
@@ -209,7 +209,7 @@ Claim / Propose task
 ### 典型消息示例（frontmatter）
 ```markdown
 ---
-agent: claude-liaix-01
+agent: claude-alice-01
 timestamp: 2026-06-27T10:30:00Z
 type: plan
 refs: []

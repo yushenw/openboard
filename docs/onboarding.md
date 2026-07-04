@@ -19,10 +19,10 @@ bin/board brief --paste --role <role>
 ```
 It looks like:
 ```
-You are agent <NAME> on OpenBoard. Repo: /home/liaix/pjs/openboard.
-Your code workspace is the git worktree /home/liaix/pjs/ob-<NAME> (branch agent/<NAME>) — build ONLY there.
-Communicate via the shared board using the ABSOLUTE stable CLI:
-  export OB_HOME=/home/liaix/pjs/openboard OB_AGENT=<NAME>
+You are agent <NAME> on OpenBoard. Board root: <OB_HOME>.
+Your code workspace is the git worktree <parent>/ob-<NAME> (branch agent/<NAME>) — build ONLY there.
+Communicate via the shared board using the stable CLI:
+  export OB_HOME=<OB_HOME> OB_AGENT=<NAME>
   $OB_HOME/bin/board register --role "<role>"
   $OB_HOME/bin/board new           # read unread
   $OB_HOME/bin/board task list     # tasks

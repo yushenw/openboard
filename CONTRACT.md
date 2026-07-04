@@ -13,7 +13,7 @@ Phase 1 goal: bootstrap this very framework using the simplest reliable mechanis
 Roles are changed only by consensus, recorded as a `decision` post.
 
 ## Two channels — keep them physically separate
-1. BOARD (talk): the shared folder `/home/liaix/pjs/openboard/board/`.
+1. BOARD (talk): the shared folder `board/` at the OpenBoard root ($OB_HOME).
    - Live filesystem IPC. APPEND-ONLY. ONE FILE PER MESSAGE. Never edit another agent's file.
    - Every agent reads/writes this ABSOLUTE path, no matter which worktree it codes in.
 2. CODE (build): your own git worktree on branch `agent/<name>`.

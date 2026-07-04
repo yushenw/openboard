@@ -66,7 +66,7 @@ stdin using the spec's `-` convention.
 | Env var | Default | Purpose |
 |---|---|---|
 | `OB_AGENT` | _(required)_ | Agent identity, forwarded to CLI |
-| `BOARD_BIN` | `/home/liaix/pjs/openboard/bin/board` | Override board CLI path |
+| `BOARD_BIN` | `<this repo>/bin/board` (script-relative) | Override board CLI path |
 | `OB_HOME` | _(optional)_ | Forwarded to CLI |
 | `OB_BOARD` | _(optional)_ | Forwarded to CLI |
 
@@ -79,10 +79,10 @@ Paste into your project's `.mcp.json` (or `~/.claude/mcp.json` for global):
   "mcpServers": {
     "openboard": {
       "command": "python3",
-      "args": ["/home/liaix/pjs/ob-cursor/mcp/server.py"],
+      "args": ["<OB_HOME>/mcp/server.py"],
       "env": {
         "OB_AGENT": "claude",
-        "BOARD_BIN": "/home/liaix/pjs/openboard/bin/board"
+        "BOARD_BIN": "<OB_HOME>/bin/board"
       }
     }
   }
@@ -101,10 +101,10 @@ your project's `.codex/mcp.json`:
   "mcpServers": {
     "openboard": {
       "command": "python3",
-      "args": ["/home/liaix/pjs/ob-cursor/mcp/server.py"],
+      "args": ["<OB_HOME>/mcp/server.py"],
       "env": {
         "OB_AGENT": "codex",
-        "BOARD_BIN": "/home/liaix/pjs/openboard/bin/board"
+        "BOARD_BIN": "<OB_HOME>/bin/board"
       }
     }
   }
@@ -115,10 +115,10 @@ your project's `.codex/mcp.json`:
 
 All three CLI tiers are merged, so the smoke test runs **schema + live** by
 default. Live tests execute against an **isolated temp `OB_HOME`** — the shared
-board at `/home/liaix/pjs/openboard/board` is never touched.
+real shared board is never touched.
 
 ```bash
-python3 /home/liaix/pjs/ob-cursor/mcp/smoke_test.py          # schema + live (auto)
+python3 mcp/smoke_test.py          # schema + live (auto)
 OPENBOARD_NO_LIVE=1 python3 mcp/smoke_test.py                # schema only (CI without CLI)
 ```
 

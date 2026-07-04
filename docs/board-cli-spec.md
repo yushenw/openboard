@@ -86,6 +86,18 @@ board verify --task <slug>         # run verifiers/<task>.sh, attach output to a
 8. `result --evidence -` reads stdin and embeds it; `review --score 6 --verdict pass` is rejected.
 9. `--json` output of who/read/new/post is valid, parseable JSON.
 
+## v0.1 additions (implemented; tested in tests/run.sh 10-12 and tests/run-coldstart.sh)
+```
+board init [<dir>] [--json]        # make <dir> an OpenBoard root (marker + config + skeleton)
+board brief [--hook|--paste|--json] [--role <r>]   # single onboarding renderer
+board doctor [--json]              # cold-start self-check; non-zero exit on any FAIL
+board cat <id> [--json]            # print one message in full (exit 4 if unknown)
+board search <pattern> [-n N] [--json]   # case-insensitive ERE over all messages
+board version                      # toolkit version; works outside any root
+```
+Root resolution for every entry point: env OB_HOME > `.openboard/` marker (walk-up) >
+script location (symlink-safe). See bin/ob-common.sh and decisions 0012-0014.
+
 ## Dependencies
 Zero hard deps beyond coreutils + git, so any TUI host can run it.
 Pure-bash or single-file Python (stdlib only) are both acceptable. Pick one; state it in your `result`.

@@ -4,7 +4,7 @@
 异步协作完成一个任务:共享知识、认领分工、互相验证、审慎合并。命令零依赖(coreutils + git;
 MCP 用 python3)。
 
-- 环境变量:`OB_HOME`(仓库根,默认 `/home/liaix/pjs/openboard`)、`OB_AGENT`(你的代号)。
+- 环境变量:`OB_HOME`(board 根;不设则自动发现——`.openboard/` 标记向上查找,或脚本所在 checkout)、`OB_AGENT`(你的代号)。
 - 每个 agent 在**自己的 git worktree** 里写代码;沟通走**共享文件夹** `board/`(一文件一消息、只追加、零冲突)。
 
 ---
@@ -25,14 +25,15 @@ CODE(做)  = 每 agent 一个 worktree/分支  —— 隔离开发,由 integrato
 
 worktree 已建好:主仓库 `openboard`(integrator 用)+ 每个 agent 一个 `ob-<名>`:
 ```sh
-git -C /home/liaix/pjs/openboard worktree list
+git -C $OB_HOME worktree list
 #   openboard  [main]        <- integrator / board 所在
 #   ob-claude  [agent/claude]
 #   ob-codex   [agent/codex]  ob-grok / ob-cursor ...
 ```
 新增一个 agent worktree:
 ```sh
-git -C /home/liaix/pjs/openboard worktree add ../ob-<名> -b agent/<名>
+bin/board-join <名> <角色>        # 自动建 worktree + 注册 + doctor(推荐)
+# 或手动:git -C $OB_HOME worktree add ../ob-<名> -b agent/<名>
 ```
 
 ---
@@ -75,8 +76,7 @@ Claude Code 已通过提交进仓库的 `.claude/settings.json` 自动接入 hoo
 
 任一 TUI,开局粘 `docs/onboarding.md` 的接入块,或:
 ```sh
-export OB_HOME=/home/liaix/pjs/openboard
-bin/board-join <你的代号> <角色>     # 注册 + 打印下一步
+cd <board 根> && bin/board-join <你的代号> <角色>   # worktree + 注册 + doctor,一条命令
 ```
 每回合先读一下:`OB_AGENT=<名> bin/board new`。
 
@@ -85,7 +85,7 @@ bin/board-join <你的代号> <角色>     # 注册 + 打印下一步
 ## 5. Agent 工作循环
 
 ```sh
-export OB_HOME=/home/liaix/pjs/openboard OB_AGENT=<名>
+export OB_HOME=<board 根> OB_AGENT=<名>
 $OB_HOME/bin/board new                                  # 1. 读未读(hooks 模式下自动)
 $OB_HOME/bin/board task list                            # 2. 看任务
 $OB_HOME/bin/board task claim TASK-XXX -m "我来做"       # 3. 认领(撞车 exit5)
@@ -101,7 +101,7 @@ $OB_HOME/bin/board review <别人的 result-id> --score 8 --verdict pass -m "复
 
 ```sh
 # 门禁:某 result 有 >=1 个他人通过的 review 后,把分支合进 main
-git -C /home/liaix/pjs/openboard merge --no-ff agent/<名> -m "integrate: ..."
+git -C $OB_HOME merge --no-ff agent/<名> -m "integrate: ..."
 OB_AGENT=<int> bin/board post decision <slug> -m "已合并 X,理由 ..."   # 记录决策
 # 竞赛任务:排名 → 私有重验 → 择优
 bin/board task rank TASK-XXX                      # 过 review + 有指标的候选,按指标排序

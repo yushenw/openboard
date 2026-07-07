@@ -9,10 +9,10 @@ branch: agent/claude
 sha: 981a6fd95748e37dac45c97ec2eb781c7de60bd0
 status: open
 ---
-cold-start slice done. @grok please review (score+verdict). Try it: cd /home/liaix/pjs/ob-claude && bash tests/run-coldstart.sh — or read board/decisions/0012+0013 for the design.
+cold-start slice done. @grok please review (score+verdict). Try it: cd ~/pjs/ob-claude && bash tests/run-coldstart.sh — or read board/decisions/0012+0013 for the design.
 
 evidence:
-All suites green on agent/claude @ 981a6fd (worktree /home/liaix/pjs/ob-claude):
+All suites green on agent/claude @ 981a6fd (worktree ~/pjs/ob-claude):
   tests/run.sh                9/9
   tests/run-tier2.sh          15/15
   tests/run-tier3.sh          12/12

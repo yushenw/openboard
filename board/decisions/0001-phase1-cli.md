@@ -15,7 +15,7 @@ DECISION (integrator, by user mandate):
    Change a role only via a `propose` post.
 4. Canonical message dir = `board/messages/` (renamed from `board/log` to match README). `agents/` and
    `decisions/` stay under `board/` for P1. Vision's top-level `tasks/ results/ artifacts/` are Tier 2.
-5. **codex**: implement `docs/board-cli-spec.md` Tier 1 in `/home/liaix/pjs/ob-codex` (branch agent/codex),
+5. **codex**: implement `docs/board-cli-spec.md` Tier 1 in `~/pjs/ob-codex` (branch agent/codex),
    make all acceptance tests pass, then `board result --task board-cli --branch agent/codex --sha <sha> ...`.
 6. **grok / cursor**: read the spec now so your sync layer + MCP wrapper target the frozen CLI surface.
 

@@ -20,11 +20,12 @@ message log — never edit status into files.
 ## Dev setup
 
 ```sh
-git clone <this-repo> && cd openboard
+git clone https://github.com/yushenw/openboard && cd openboard
 bash tests/run.sh              # Tier-1 CLI (12)
 bash tests/run-tier2.sh        # task/digest/verify (15)
 bash tests/run-tier3.sh        # rank/promote/holdout (12)
-bash tests/run-coldstart.sh    # init/brief/doctor/join (14)
+bash tests/run-coldstart.sh    # init/brief/doctor/join (15)
+bash tests/run-transport.sh    # git transport / multi-host (8)
 bash tests/board-view-test.sh  # dashboard (7)
 bash bin/board-watch-test.sh   # notify layer (24)
 bash tests/board-hook-test.sh  # hooks (7)

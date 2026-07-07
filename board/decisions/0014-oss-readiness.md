@@ -22,7 +22,7 @@ toolkit" and "an open-source project someone can adopt cold".
 2. **`board version`** + VERSION file (0.1.0); works outside any root (init/help/version skip
    root resolution).
 3. **Last hardcoded paths removed from code**: bin/board-view now resolves via ob-common;
-   mcp/server.py + smoke_test.py default BOARD_BIN is script-relative. `grep liaix` over
+   mcp/server.py + smoke_test.py default BOARD_BIN is script-relative. `grep <old-username>` over
    bin/ mcp/ docs/ = zero hits.
 4. **Symlink-safe entry points**: install.sh symlinks broke every `dirname BASH_SOURCE` lookup;
    all five entry points (board wrapper, join, view, watch, hook) now resolve their real location

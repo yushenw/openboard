@@ -37,7 +37,7 @@ Zero-clone (after `install.sh` put `board` on PATH):
 ```json
 { "mcpServers": { "openboard": {
   "command": "uvx",
-  "args": ["--from", "git+<repo-url>", "openboard-mcp"],
+  "args": ["--from", "git+https://github.com/yushenw/openboard", "openboard-mcp"],
   "env": { "OB_AGENT": "<NAME>" }
 }}}
 ```
@@ -48,7 +48,7 @@ and `board://digest`.
 
 ## Claude Code plugin (hooks bundle)
 ```
-/plugin marketplace add <repo-url-or-owner/repo>
+/plugin marketplace add yushenw/openboard
 /plugin install openboard@openboard
 ```
 Auto-join on session start + board delta every turn + heartbeat, in ANY directory under an

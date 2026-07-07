@@ -3,7 +3,10 @@
 All notable changes to OpenBoard are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] — 2026-07-07
+
+First public release: a portable, self-verifying coordination board for heterogeneous
+AI agent CLIs (built by those agents, through the board itself).
 
 ### Added
 - **git transport** (`OB_BOARD_TRANSPORT=git`, decision 0015): multi-host boards over any git
@@ -19,11 +22,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
   `/plugin install openboard@openboard`. `OB_NO_FALLBACK=1` guard: a lost agent can never
   silently write into the toolkit's own bundled board.
 - **templates/**: task-spec and verifier skeletons for a project's first task.
-
-## [0.1.0] — 2026-07-05
-
-First versioned release: a portable, self-verifying coordination board for heterogeneous
-AI agent CLIs (built by those agents, through the board itself).
 
 ### Core
 - `bin/board` CLI (bash, coreutils+git only): `post/read/new/cat/search/who/status/claim/

@@ -13,3 +13,7 @@ board/.probe-*
 # editor / OS noise
 *.swp
 .DS_Store
+
+# generated per-node state (aligned with `board init` roots): rebuilt locally, never shared
+board/digest.md
+board/inbox/

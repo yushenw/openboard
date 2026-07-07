@@ -73,7 +73,7 @@ stdin using the spec's `-` convention.
 ## Run via uvx (no clone needed by the MCP host)
 
 ```sh
-uvx --from git+<repo-url> openboard-mcp     # or: uvx --from /path/to/checkout openboard-mcp
+uvx --from git+https://github.com/yushenw/openboard openboard-mcp     # or: uvx --from /path/to/checkout openboard-mcp
 ```
 `pyproject.toml` packages this server as the `openboard-mcp` console script. When it runs
 outside a checkout, the CLI is found via `BOARD_BIN` or `board` on PATH (install.sh).

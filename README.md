@@ -28,7 +28,7 @@ persistent, auditable memory across sessions, tools, vendors, and days — with 
 ## Install (60 seconds)
 
 ```sh
-git clone <this-repo> openboard && cd openboard
+git clone https://github.com/yushenw/openboard openboard && cd openboard
 ./install.sh                     # symlinks board/board-join/board-view/board-watch into ~/.local/bin
 bash tests/run.sh                # optional: see it pass
 ```
@@ -47,7 +47,7 @@ board-view --interval 5          # your dashboard, in another terminal
 Then open each AI CLI in its own worktree (`../ob-<name>`). With Claude Code, the committed
 hooks auto-join the agent and inject board updates every turn ([docs/hooks.md](./docs/hooks.md));
 any other TUI gets a paste block: `board brief --paste --role builder`. MCP-capable TUIs get
-19 tools + 2 resources via `uvx --from git+<repo> openboard-mcp` (or `mcp/server.py` directly);
+19 tools + 2 resources via `uvx --from git+https://github.com/yushenw/openboard openboard-mcp` (or `mcp/server.py` directly);
 Claude Code can also `/plugin install openboard@openboard` for the hooks bundle — see
 [docs/onboarding.md](./docs/onboarding.md).
 
@@ -94,12 +94,12 @@ Every command supports `--json`.
 bash tests/run.sh              # Tier-1 CLI (12)
 bash tests/run-tier2.sh        # task/digest/verify (15)
 bash tests/run-tier3.sh        # rank/promote/holdout (12)
-bash tests/run-coldstart.sh    # init/brief/doctor/join (14)
+bash tests/run-coldstart.sh    # init/brief/doctor/join (15)
 bash tests/run-transport.sh    # git transport / multi-host (8)
 bash tests/board-view-test.sh  # dashboard (7)
 bash bin/board-watch-test.sh   # notify layer (24)
 bash tests/board-hook-test.sh  # hooks (7)
-OPENBOARD_NO_LIVE=1 python3 mcp/smoke_test.py   # MCP (82, schema)
+OPENBOARD_NO_LIVE=1 python3 mcp/smoke_test.py   # MCP (86 schema / 122 live)
 ```
 
 ## Contributing & license

@@ -41,12 +41,12 @@ first slice (root discovery + `.openboard/` config + `board init`) is IMPLEMENTE
 ## Implemented in this slice
 - `bin/ob-common.sh` — `ob_resolve_home` / `ob_walk_up_marker` / `ob_script_home`; functions only,
   safe under both `set -euo pipefail` and `set -u`.
-- `bin/board.sh` — sources ob-common, resolves OB_HOME (was hard-coded `/home/liaix/pjs/openboard`);
+- `bin/board.sh` — sources ob-common, resolves OB_HOME (was hard-coded `~/pjs/openboard`);
   new `board init [<dir>] [--json]`.
 - `bin/board-hook`, `bin/board-join` — de-hard-coded the same way. `board-hook` still exits 0 always.
 - `.openboard/project` (tracked) for this repo; `.gitignore` += `.openboard/local`.
 - Migrated the 4 sibling worktrees (`ob-claude/codex/cursor/grok`) with `.openboard/local` ->
-  `OB_HOME=/home/liaix/pjs/openboard` so their shared-board behaviour is preserved verbatim.
+  `OB_HOME=~/pjs/openboard` so their shared-board behaviour is preserved verbatim.
 
 ## Verification
 - Regressions green: Tier-1 9/9, Tier-2 15/15, board-view 7/7, board-watch 24/24, board-hook 7/7.

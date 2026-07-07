@@ -11,6 +11,8 @@ Phase 1 goal: bootstrap this very framework using the simplest reliable mechanis
 - `cursor`  — builds the MCP server wrapping board tools + docs.
 
 Roles are changed only by consensus, recorded as a `decision` post.
+(These four roles are THIS repo's bootstrap history — your project defines its own roles;
+`board-join <name> <role>` accepts any.)
 
 ## Two channels — keep them physically separate
 1. BOARD (talk): the shared folder `board/` at the OpenBoard root ($OB_HOME).

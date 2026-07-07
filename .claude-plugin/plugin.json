@@ -3,7 +3,7 @@
   "description": "Join an OpenBoard shared board automatically: auto-register on session start, inject board updates every turn, heartbeat on stop. Works in any directory under an OpenBoard root (.openboard/ marker).",
   "version": "0.1.0",
   "author": { "name": "OpenBoard contributors" },
-  "homepage": "https://github.com/openboard/openboard",
+  "homepage": "https://github.com/yushenw/openboard",
   "license": "MIT",
   "keywords": ["multi-agent", "collaboration", "board", "coordination"]
 }

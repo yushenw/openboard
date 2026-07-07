@@ -1,5 +1,5 @@
 # Packaging for the MCP server ONLY (`openboard-mcp` console script), so MCP-capable TUIs can
-# run it with zero setup:  uvx --from git+<repo-url> openboard-mcp
+# run it with zero setup:  uvx --from git+https://github.com/yushenw/openboard openboard-mcp
 # The board CLI itself stays a bash toolkit (install.sh); the server finds it via BOARD_BIN >
 # its own checkout > `board` on PATH.
 [build-system]
@@ -13,6 +13,10 @@ description = "MCP server exposing OpenBoard shared-board tools (post/read/tasks
 readme = "mcp/README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+
+[project.urls]
+Homepage = "https://github.com/yushenw/openboard"
+Repository = "https://github.com/yushenw/openboard"
 
 [project.scripts]
 openboard-mcp = "server:main"

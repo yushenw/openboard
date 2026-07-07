@@ -928,7 +928,7 @@ cmd_sync() {
 usage() {
   cat >&2 <<'EOF'
 usage: OB_AGENT=<name> board.sh <command> [args]
-  init [<dir>] [--json]        make <dir> (default CWD) an OpenBoard root
+  init [<dir>] [--transport local|git] [--json]   make <dir> (default CWD) an OpenBoard root
   brief [--hook|--paste|--json] [--role <r>]   onboarding text — single source for hook/paste/MCP
   doctor [--json]              cold-start self-check (home/identity/roundtrip/transport/deps/hooks)
   cat <id> [--json]            print one message in full
@@ -964,10 +964,16 @@ EOF
 # Idempotent: only creates what is missing; never clobbers. Does NOT install the CLI tooling.
 # ---------------------------------------------------------------------------
 cmd_init() {
-  local target="" json=0
+  local target="" json=0 transport=local
   while [ $# -gt 0 ]; do
-    case "$1" in --json) json=1; shift ;; -*) die 2 "init: unknown flag '$1'" ;; *) target=$1; shift ;; esac
+    case "$1" in
+      --json) json=1; shift ;;
+      --transport) transport=${2:?}; shift 2 ;;
+      -*) die 2 "init: unknown flag '$1'" ;;
+      *) target=$1; shift ;;
+    esac
   done
+  case "$transport" in local|git) ;; *) die 2 "init: --transport must be local|git" ;; esac
   target="${target:-$PWD}"
   target=$(cd "$target" 2>/dev/null && pwd) || die 4 "init: no such directory '$target'"
   local made=() kept=()
@@ -975,8 +981,15 @@ cmd_init() {
   mkdir -p "$target/.openboard"
   if [ -f "$target/.openboard/project" ]; then kept+=(".openboard/project")
   else
-    printf 'OB_SCHEMA=1\nOB_BOARD_TRANSPORT=local\nOB_TRUST_LEVEL=0\n' > "$target/.openboard/project"
+    printf 'OB_SCHEMA=1\nOB_BOARD_TRANSPORT=%s\nOB_TRUST_LEVEL=0\n' "$transport" > "$target/.openboard/project"
     made+=(".openboard/project")
+  fi
+  # .gitignore: per-node generated files never enter the shared history (matters for transport=git)
+  if [ -f "$target/.gitignore" ]; then kept+=(".gitignore")
+  else
+    printf '# OpenBoard: per-node generated state — never shared\nboard/.cursor-*\nboard/.probe-*\nboard/digest.md\nboard/inbox/\n.openboard/local\n.ob-agent\n.ob-role\n' \
+      > "$target/.gitignore"
+    made+=(".gitignore")
   fi
   # board data skeleton (+ sibling task/verifier/artifact dirs)
   local d
@@ -1106,8 +1119,10 @@ cmd_doctor() {
   case "$OB_BOARD_TRANSPORT" in
     local) chk ok transport "local" ;;
     git)
-      if GIT_TERMINAL_PROMPT=0 timeout 5 git -C "$OB_HOME" ls-remote --exit-code origin >/dev/null 2>&1; then
-        chk ok transport "git (origin reachable)"
+      if ! git -C "$OB_HOME" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+        chk FAIL transport "git: no upstream — run: git -C $OB_HOME push -u origin <branch>"
+      elif GIT_TERMINAL_PROMPT=0 timeout 5 git -C "$OB_HOME" ls-remote --exit-code origin >/dev/null 2>&1; then
+        chk ok transport "git (origin reachable, upstream set)"
       else chk FAIL transport "git transport: remote 'origin' unreachable from $OB_HOME"; fi ;;
     *) chk FAIL transport "unknown OB_BOARD_TRANSPORT '$OB_BOARD_TRANSPORT' (want local|git)" ;;
   esac
@@ -1203,6 +1218,10 @@ cmd_search() {
 # Dispatch
 # ---------------------------------------------------------------------------
 cmd="${1:-help}"; shift || true
+# git transport (decision 0015): fresh state in before ANY command, board writes out after.
+# Both are no-ops under transport=local. The EXIT trap preserves the command's exit code.
+ob_git_pull
+trap ob_git_push EXIT
 case "$cmd" in
   init)     cmd_init "$@" ;;
   brief)    cmd_brief "$@" ;;

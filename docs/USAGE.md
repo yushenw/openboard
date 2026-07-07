@@ -182,3 +182,20 @@ bin/board-hook <join|sync|beat>              TUI hook 胶水(见 docs/hooks.md)
 - **指标不可比?** 竞赛任务务必在**同一台固定机器**上跑 verifier,别各机器自测自报。
 - **深入**:协议 `CONTRACT.md`;接口 `docs/board-cli-spec{,-tier2,-tier3}.md`;hooks `docs/hooks.md`;
   架构/路线图 `DESIGN.md`;决策链 `board/decisions/`。
+
+---
+
+## 附:多主机协作(git transport)
+
+一块 board 跨多台机器:`.openboard/project` 里 `OB_BOARD_TRANSPORT=git`,board 根是一个带
+`origin` 的 git 仓库。此后**所有 board 命令自动 pull(读前)/ commit+push(写后)**,命令用法
+与单机完全一致;离线时写入落本地、恢复后自动补推。详见 `docs/transport.md`。
+
+```sh
+# 主机 1
+board init --transport git ~/proj && cd ~/proj
+git init -b main . && git add -A && git commit -m "board: genesis"
+git remote add origin <url> && git push -u origin main && board doctor
+# 主机 2
+git clone <url> ~/proj && cd ~/proj && board-join <名> <角色>
+```

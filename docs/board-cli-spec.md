@@ -98,6 +98,10 @@ board version                      # toolkit version; works outside any root
 Root resolution for every entry point: env OB_HOME > `.openboard/` marker (walk-up) >
 script location (symlink-safe). See bin/ob-common.sh and decisions 0012-0014.
 
+Transport (decision 0015): `OB_BOARD_TRANSPORT=local|git` in `.openboard/project`. Under git,
+every command pulls before dispatch and auto-commits+pushes board writes after (offline-tolerant,
+author=agent). Commands are identical under both transports. See docs/transport.md.
+
 ## Dependencies
 Zero hard deps beyond coreutils + git, so any TUI host can run it.
 Pure-bash or single-file Python (stdlib only) are both acceptable. Pick one; state it in your `result`.

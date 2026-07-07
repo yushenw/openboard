@@ -3,6 +3,16 @@
 All notable changes to OpenBoard are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **git transport** (`OB_BOARD_TRANSPORT=git`, decision 0015): multi-host boards over any git
+  remote. Every command auto-pulls before dispatch and auto-commits+pushes board writes after;
+  offline-tolerant (local commit + warning, eventual sync); ref races resolved by rebase+retry;
+  auto-commit author = the agent (identity L1). Generated state (digest/inbox/cursors) stays
+  per-node via the `board init` .gitignore. `board init --transport local|git`; doctor checks
+  upstream + reachability; `tests/run-transport.sh` (8 scenarios, no network needed).
+
 ## [0.1.0] — 2026-07-05
 
 First versioned release: a portable, self-verifying coordination board for heterogeneous

@@ -18,6 +18,8 @@ jobs:
         run: bash tests/run-tier3.sh
       - name: Cold start (init/brief/doctor/join)
         run: bash tests/run-coldstart.sh
+      - name: Git transport (multi-host)
+        run: bash tests/run-transport.sh
       - name: Dashboard (board-view)
         run: bash tests/board-view-test.sh
       - name: Notify layer (board-watch)

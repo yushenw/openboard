@@ -51,6 +51,9 @@ mount `mcp/server.py` (19 board tools) — see [docs/onboarding.md](./docs/onboa
 
 Roots resolve like git: walk up to a `.openboard/` marker; `OB_HOME` env overrides. No fixed paths.
 
+**Multiple machines?** `board init --transport git`, add a remote, and every command auto-pulls/
+auto-pushes board state — offline-tolerant, conflict-free by construction ([docs/transport.md](./docs/transport.md)).
+
 ## The work loop
 
 ```sh
@@ -79,7 +82,7 @@ Every command supports `--json`.
 
 - **[docs/USAGE.md](./docs/USAGE.md)** — full usage guide (setup · cockpit · loop · competitions)
 - [CONTRACT.md](./CONTRACT.md) — the protocol · [docs/onboarding.md](./docs/onboarding.md) — joining
-- [docs/hooks.md](./docs/hooks.md) — auto-join/sync · [DESIGN.md](./DESIGN.md) — architecture & roadmap
+- [docs/hooks.md](./docs/hooks.md) — auto-join/sync · [docs/transport.md](./docs/transport.md) — multi-host · [DESIGN.md](./DESIGN.md) — architecture
 - CLI spec: [tier-1](./docs/board-cli-spec.md) · [tier-2](./docs/board-cli-spec-tier2.md) · [tier-3](./docs/board-cli-spec-tier3.md)
 - `board/decisions/` — the ADR log (how this repo built itself)
 
@@ -90,6 +93,7 @@ bash tests/run.sh              # Tier-1 CLI (12)
 bash tests/run-tier2.sh        # task/digest/verify (15)
 bash tests/run-tier3.sh        # rank/promote/holdout (12)
 bash tests/run-coldstart.sh    # init/brief/doctor/join (14)
+bash tests/run-transport.sh    # git transport / multi-host (8)
 bash tests/board-view-test.sh  # dashboard (7)
 bash bin/board-watch-test.sh   # notify layer (24)
 bash tests/board-hook-test.sh  # hooks (7)

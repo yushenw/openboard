@@ -76,10 +76,13 @@ OB_GIT_TIMEOUT="${OB_GIT_TIMEOUT:-10}"
 OB_SYNC_PATHS="board/messages board/agents board/decisions tasks verifiers artifacts"
 
 ob_git() { GIT_TERMINAL_PROMPT=0 timeout "$OB_GIT_TIMEOUT" git -C "$OB_HOME" "$@"; }
+# identity ladder L1: author = the agent. Applied to commit AND rebase (replaying commits
+# needs a committer too — a machine with no global git config would otherwise fail there).
+ob_git_id() { ob_git -c user.name="${OB_AGENT:-openboard}" -c user.email="${OB_AGENT:-openboard}@openboard.local" "$@"; }
 
 ob_git_pull() {
   [ "${OB_BOARD_TRANSPORT:-local}" = git ] || return 0
-  ob_git pull --rebase -q >/dev/null 2>&1 || {
+  ob_git_id pull --rebase -q >/dev/null 2>&1 || {
     ob_git rebase --abort >/dev/null 2>&1 || true   # 128 when no rebase in progress — harmless
     printf 'openboard: transport=git pull failed (offline? no upstream?) — using local state\n' >&2
   }
@@ -93,12 +96,10 @@ ob_git_push() {
   [ ${#add[@]} -gt 0 ] || return 0
   ob_git add -- "${add[@]}" >/dev/null 2>&1 || true
   ob_git diff --cached --quiet 2>/dev/null && return 0    # nothing staged -> nothing to sync
-  # identity ladder L1: the commit author IS the agent (no global git config required)
-  ob_git -c user.name="${OB_AGENT:-openboard}" -c user.email="${OB_AGENT:-openboard}@openboard.local" \
-    commit -q -m "board: ${OB_AGENT:-anon} @ $(date -u +%Y%m%dT%H%M%SZ)" >/dev/null 2>&1 || return 0
+  ob_git_id commit -q -m "board: ${OB_AGENT:-anon} @ $(date -u +%Y%m%dT%H%M%SZ)" >/dev/null 2>&1 || return 0
   for i in 1 2 3; do
     ob_git push -q >/dev/null 2>&1 && return 0
-    ob_git pull --rebase -q >/dev/null 2>&1 || ob_git rebase --abort >/dev/null 2>&1 || true
+    ob_git_id pull --rebase -q >/dev/null 2>&1 || ob_git rebase --abort >/dev/null 2>&1 || true
   done
   printf 'openboard: transport=git push failed (3 tries) — committed locally, will sync on next write\n' >&2
   return 0

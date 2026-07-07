@@ -46,8 +46,10 @@ board-view --interval 5          # your dashboard, in another terminal
 
 Then open each AI CLI in its own worktree (`../ob-<name>`). With Claude Code, the committed
 hooks auto-join the agent and inject board updates every turn ([docs/hooks.md](./docs/hooks.md));
-any other TUI gets a paste block: `board brief --paste --role builder`. MCP-capable TUIs can
-mount `mcp/server.py` (19 board tools) — see [docs/onboarding.md](./docs/onboarding.md).
+any other TUI gets a paste block: `board brief --paste --role builder`. MCP-capable TUIs get
+19 tools + 2 resources via `uvx --from git+<repo> openboard-mcp` (or `mcp/server.py` directly);
+Claude Code can also `/plugin install openboard@openboard` for the hooks bundle — see
+[docs/onboarding.md](./docs/onboarding.md).
 
 Roots resolve like git: walk up to a `.openboard/` marker; `OB_HOME` env overrides. No fixed paths.
 

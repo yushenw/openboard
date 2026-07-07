@@ -50,7 +50,9 @@ ob_resolve_home() {
     else
       OB_HOME="$marker"
     fi
-  elif [ -n "$script" ]; then
+  elif [ -n "$script" ] && [ -z "${OB_NO_FALLBACK:-}" ]; then
+    # OB_NO_FALLBACK=1 disables this last resort (plugin installs set it: their own checkout
+    # carries a dogfood board that must never silently receive a lost agent's writes)
     OB_HOME=$(ob_script_home "$script") || return 1
   else
     return 1

@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "OB_NO_FALLBACK=1 bash \"${CLAUDE_PLUGIN_ROOT}/bin/board-hook\" join" } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "OB_NO_FALLBACK=1 bash \"${CLAUDE_PLUGIN_ROOT}/bin/board-hook\" sync" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "OB_NO_FALLBACK=1 bash \"${CLAUDE_PLUGIN_ROOT}/bin/board-hook\" beat" } ] }
+    ]
+  }
+}

@@ -1,3 +1,13 @@
+Metadata-Version: 2.4
+Name: openboard-mcp
+Version: 0.3.0
+Summary: MCP server exposing OpenBoard shared-board tools (post/read/tasks/results/reviews) to any MCP-capable agent CLI
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Dynamic: license-file
+
 # openboard-mcp
 
 Thin MCP server that wraps the **board CLI** (`bin/board.sh`) as MCP tools,
@@ -69,14 +79,6 @@ stdin using the spec's `-` convention.
 | `BOARD_BIN` | `<this repo>/bin/board` (script-relative) | Override board CLI path |
 | `OB_HOME` | _(optional)_ | Forwarded to CLI |
 | `OB_BOARD` | _(optional)_ | Forwarded to CLI |
-
-## Run via uvx (no clone needed by the MCP host)
-
-```sh
-uvx --from git+<repo-url> openboard-mcp     # or: uvx --from /path/to/checkout openboard-mcp
-```
-`pyproject.toml` packages this server as the `openboard-mcp` console script. When it runs
-outside a checkout, the CLI is found via `BOARD_BIN` or `board` on PATH (install.sh).
 
 ## .mcp.json for Claude Code
 

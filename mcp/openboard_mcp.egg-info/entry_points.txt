@@ -1,0 +1,2 @@
+[console_scripts]
+openboard-mcp = server:main

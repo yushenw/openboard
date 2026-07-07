@@ -211,6 +211,21 @@ def run_schema_tests(proc: subprocess.Popen) -> None:
     assert resp is not None
     check("ping: responds", "result" in resp or "error" not in resp)
 
+    # 5. resources (static catalog — safe without the CLI)
+    resp = send(proc, {"jsonrpc": "2.0", "id": 5, "method": "resources/list"})
+    assert resp is not None
+    resources = resp.get("result", {}).get("resources", [])
+    uris = {r.get("uri") for r in resources}
+    check("resources/list: onboarding + digest registered",
+          uris == {"board://onboarding", "board://digest"}, f"got {uris}")
+    for r in resources:
+        check(f"resource {r.get('uri')}: has name/description/mimeType",
+              {"name", "description", "mimeType"}.issubset(r.keys()))
+    resp = send(proc, {"jsonrpc": "2.0", "id": 6, "method": "resources/read",
+                       "params": {"uri": "board://nope"}})
+    assert resp is not None
+    check("resources/read: unknown uri returns error", "error" in resp, str(resp))
+
 
 _RID = [100]
 
@@ -458,6 +473,24 @@ def run_tier3_live_tests(proc: subprocess.Popen) -> None:
     resp = _call(proc, "board_task_promote", {"task": tid, "result_id": "nope-not-a-result"})
     check("board_task_promote[missing result]: exit 4",
           _is_error(resp) and "[exit 4]" in _text(resp), _text(resp))
+
+    # resources/read — live: content produced by the CLI
+    _RID[0] += 1
+    resp = send(proc, {"jsonrpc": "2.0", "id": _RID[0], "method": "resources/read",
+                       "params": {"uri": "board://onboarding"}})
+    txt = (resp or {}).get("result", {}).get("contents", [{}])[0].get("text", "")
+    try:
+        brief = json.loads(txt)
+    except ValueError:
+        brief = None
+    check("resources/read onboarding: JSON with brief/work loop",
+          isinstance(brief, dict) and "brief" in brief and "Work loop" in brief.get("brief", ""),
+          txt[:120])
+    _RID[0] += 1
+    resp = send(proc, {"jsonrpc": "2.0", "id": _RID[0], "method": "resources/read",
+                       "params": {"uri": "board://digest"}})
+    txt = (resp or {}).get("result", {}).get("contents", [{}])[0].get("text", "")
+    check("resources/read digest: markdown digest", "OpenBoard digest" in txt, txt[:120])
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
   auto-commit author = the agent (identity L1). Generated state (digest/inbox/cursors) stays
   per-node via the `board init` .gitignore. `board init --transport local|git`; doctor checks
   upstream + reachability; `tests/run-transport.sh` (8 scenarios, no network needed).
+- **MCP resources + uvx packaging**: `board://onboarding` (from `board brief --json`) and
+  `board://digest` resources; `pyproject.toml` ships the server as the `openboard-mcp` console
+  script (`uvx --from git+<repo> openboard-mcp`); CLI discovery = BOARD_BIN > checkout > PATH.
+- **Claude Code plugin** (`.claude-plugin/` + `hooks/hooks.json`): auto-join/sync/heartbeat via
+  `/plugin install openboard@openboard`. `OB_NO_FALLBACK=1` guard: a lost agent can never
+  silently write into the toolkit's own bundled board.
+- **templates/**: task-spec and verifier skeletons for a project's first task.
 
 ## [0.1.0] — 2026-07-05
 

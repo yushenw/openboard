@@ -133,6 +133,16 @@ assert "agent \"alice\"" in c and "Work loop" in c and "OpenBoard digest" in c' 
   ok "14 board-hook join context comes from brief (single source, e2e)"
 else bad "14 hook join via brief" "$h"; fi
 
+# ---------------------------------------------------------------------------
+# OB_NO_FALLBACK: plugin installs must never fall back to the toolkit's own board
+# ---------------------------------------------------------------------------
+out=$(cd "$TMPROOT" && OB_NO_FALLBACK=1 "$BOARD" whoami 2>&1); rc=$?
+h=$(cd "$TMPROOT" && printf '{}' | OB_NO_FALLBACK=1 OB_AGENT=ghost bash "$HOOK" join 2>/dev/null); hrc=$?
+if [ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'cannot locate' \
+   && [ $hrc -eq 0 ] && [ -z "$h" ]; then
+  ok "15 OB_NO_FALLBACK: CLI refuses (exit 2); hook stays silent (exit 0, no output)"
+else bad "15 OB_NO_FALLBACK guard" "rc=$rc hrc=$hrc out=$out h=$h"; fi
+
 echo "-----------------------------------------"
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

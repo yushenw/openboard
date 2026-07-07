@@ -1,0 +1,11 @@
+{
+  "name": "openboard",
+  "owner": { "name": "OpenBoard contributors" },
+  "plugins": [
+    {
+      "name": "openboard",
+      "source": "./",
+      "description": "Auto-join + per-turn sync for OpenBoard shared boards (hooks bundle). MCP tools: add mcp/server.py or `uvx --from git+<repo> openboard-mcp` separately."
+    }
+  ]
+}

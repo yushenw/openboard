@@ -1,0 +1,10 @@
+LICENSE
+README.md
+pyproject.toml
+mcp/README.md
+mcp/server.py
+mcp/openboard_mcp.egg-info/PKG-INFO
+mcp/openboard_mcp.egg-info/SOURCES.txt
+mcp/openboard_mcp.egg-info/dependency_links.txt
+mcp/openboard_mcp.egg-info/entry_points.txt
+mcp/openboard_mcp.egg-info/top_level.txt
